@@ -134,6 +134,18 @@ while IFS= read -r f; do
 done < <(find "$WORK_DIR" -maxdepth 1 -type d)
 LOG_STEP_OUT
 
+# Keep the tested M55 kernel/module pairing together.
+if [[ "$TARGET_CODENAME" == "m55xq" ]]; then
+    M55_DLKM="${M55_KERNEL_DIR:-$OUT_DIR/m55xq-kernel}/vendor_dlkm.img"
+    if [[ ! -s "$M55_DLKM" ]]; then
+        LOGE "Missing required M55 vendor_dlkm.img: $M55_DLKM"
+        exit 1
+    fi
+    LOG "- Using supplied M55 vendor_dlkm.img"
+    cp -f "$M55_DLKM" "$TMP_DIR/vendor_dlkm.img" || exit 1
+    unset M55_DLKM
+fi
+
 if $TARGET_USE_DYNAMIC_PARTITIONS; then
     LOG "- Building unsparse_super_empty.img"
     BUILD_SUPER_EMPTY

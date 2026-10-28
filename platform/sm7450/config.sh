@@ -1,0 +1,6 @@
+# Galaxy M55 SM7450. Board parameters are intentionally not guessed.
+TARGET_BOARD_API_LEVEL="${M55_BOARD_API_LEVEL:-}"
+TARGET_USE_DYNAMIC_PARTITIONS=true
+TARGET_SUPER_GROUP_NAME="qti_dynamic_partitions"
+TARGET_OS_SINGLE_SYSTEM_IMAGE="qssi"
+TARGET_OS_BUILD_SYSTEM_EXT_PARTITION=false

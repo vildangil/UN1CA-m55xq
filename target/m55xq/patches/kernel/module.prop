@@ -1,0 +1,6 @@
+id=m55xq-boot-chain
+name=Galaxy M55 supplied boot-chain overlay
+version=0.1
+versionCode=1
+author=VildanG
+description=Keep provided patched boot, vendor_boot and dtbo; vendor_dlkm is replaced during target-files packaging
