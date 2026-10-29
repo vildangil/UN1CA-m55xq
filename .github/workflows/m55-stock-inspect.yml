@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 170
     env:
-      M55_STOCK_ZIP: ${{ runner.temp }}/M556BXXS4BYH2.zip
+      M55_STOCK_ZIP: ${{ github.workspace }}/M556BXXS4BYH2.zip
     steps:
       - name: Free runner space for large firmware
         shell: bash
