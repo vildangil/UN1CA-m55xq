@@ -45,8 +45,15 @@ jobs:
       M55_ONEUI7_URL: ${{ secrets.M55_ONEUI7_URL }}
       M55_ONEUI7_SHA256: ${{ secrets.M55_ONEUI7_SHA256 }}
     steps:
-      - name: Check out UN1CA M55 port
+      - name: Check out only firmware-check sources
         uses: actions/checkout@v4
+        with:
+          filter: blob:none
+          sparse-checkout: |
+            .gitmodules
+            scripts
+            unica/configs
+            external/samloader
 
       - name: Check Samsung FOTA firmware metadata
         uses: nick-fields/retry@v4
