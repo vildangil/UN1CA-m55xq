@@ -18,6 +18,14 @@ The [M55 UN1CA prototype build](https://github.com/vildangil/UN1CA-m55xq/actions
 
 It does **not** build One UI 8 system/product or combine patched boot images with the stock AVB chain. The four user-supplied modified images are not stored in this repo and are not part of the staging artifact. A full custom ROM build would require verified target-specific SEC feature values, S22 donor integration, original file contexts/ownership metadata for any regenerated partitions, kernel/module ABI and VINTF compatibility, and a safely configured AVB chain. Never flash the stage-0 output.
 
+## Donor One UI 8 integration experiment (manual)
+
+[M55 UN1CA 8 donor integration experiment](https://github.com/vildangil/UN1CA-m55xq/actions/workflows/m55-donor-mix.yml) is a separate *manual* workflow. It uses the original Bifrost SmartDownload to request the **exact** S22 One UI 8 firmware `SM-S901E/TUR/S901EXXSEGZH4`, streams `system`, `product` and `system_ext` out of its dynamic `super`, and checks them against the already verified M55 `vendor`, `odm` and `vendor_dlkm` from [stock extraction #40908265068](https://github.com/vildangil/UN1CA-m55xq/actions/runs/40908265068).
+
+It stops if the donor version does not match, any partition is not EROFS, the vendor hashes have changed, or the combined images cannot fit `qti_dynamic_partitions` (13,627,293,696 bytes). The artifact contains a partition layout, checksums, and an optional `lpmake` recipe. **It does not create a flashable ROM, modify AVB, or replace the user's patched boot-chain.** Successful staging does *not* demonstrate compatibility between Samsung Android 16 framework and the Galaxy M55 Android 15 vendor. The input stock artifact expires on GitHub's retention schedule.
+
+There are still 47 unspecified device-specific feature settings in UN1CA's target configuration. We need measured settings (not borrowed from S22) before safely running the normal `unica make_rom` path. A first experiment may identify additional VINTF/ABI work, but it must not be flashed or presented as a DSU-compatible image.
+
 ## Read-only checks
 ```bash
 bash scripts/m55xq_preflight.sh
