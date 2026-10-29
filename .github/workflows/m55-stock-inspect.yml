@@ -2,6 +2,13 @@ name: M55 One UI 7 stock image inspection
 
 on:
   workflow_dispatch:
+    inputs:
+      retain_raw_images:
+        description: "Keep extracted vendor, odm, vendor_dlkm images in GitHub Artifacts (large)"
+        type: boolean
+        required: true
+        default: true
+
 permissions:
   contents: read
 
@@ -34,6 +41,8 @@ jobs:
           sparse-checkout: |
             scripts/bifrost/BifrostFetch.kt
             scripts/m55_inspect_stock.py
+            scripts/m55_extract_dynamic.py
+            scripts/m55_audit_vendor.py
 
       - name: Prepare Java 21
         uses: actions/setup-java@v4
@@ -79,6 +88,68 @@ jobs:
             "$M55_STOCK_ZIP" out/m55-stock-inspect
           cat out/m55-stock-inspect/summary.txt
 
+      - name: Install EROFS inspection tools
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends erofs-utils e2fsprogs
+
+      - name: Extract vendor, odm and vendor_dlkm directly from sparse super
+        shell: bash
+        timeout-minutes: 30
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/m55-python/bin/python" scripts/m55_extract_dynamic.py \
+            "$M55_STOCK_ZIP" \
+            out/m55-stock-inspect/super_first16MiB.raw \
+            "$RUNNER_TEMP/m55-raw-partitions" \
+            out/m55-stock-inspect/detailed
+          df -h /
+
+      - name: Extract stock vendor and ODM filesystems without mounting
+        shell: bash
+        timeout-minutes: 30
+        run: |
+          set -euo pipefail
+          for part in vendor odm vendor_dlkm; do
+            image="$RUNNER_TEMP/m55-raw-partitions/$part.img"
+            dest="$RUNNER_TEMP/m55-unpacked/$part"
+            mkdir -p "$dest"
+            fs_magic="$(dd if="$image" bs=1 skip=1024 count=4 status=none | od -An -tx1 | tr -d ' \n')"
+            echo "M55_FILESYSTEM $part magic=$fs_magic"
+            case "$fs_magic" in
+              e2e1f5e0)
+                fsck.erofs --extract="$dest" "$image"
+                ;;
+              *)
+                echo "::error::Unexpected $part filesystem magic: $fs_magic"
+                exit 1
+                ;;
+            esac
+          done
+
+      - name: Audit M55 vendor blobs, HALs, VINTF, modules and AVB
+        shell: bash
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          python3 scripts/m55_audit_vendor.py \
+            "$RUNNER_TEMP/m55-raw-partitions" \
+            "$RUNNER_TEMP/m55-unpacked" \
+            out/m55-stock-inspect/detailed \
+            out/m55-stock-inspect
+          cat out/m55-stock-inspect/detailed/m55_vendor_audit.md
+
+      - name: Preserve vendor and ODM images on GitHub (optional)
+        if: ${{ inputs.retain_raw_images }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: M55-OneUI7-BYH2-vendor-odm-vendor_dlkm-raw
+          path: ${{ runner.temp }}/m55-raw-partitions/*.img
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
       - name: Upload inspection report and selected small stock images
         if: always()
         uses: actions/upload-artifact@v4
@@ -99,8 +170,8 @@ jobs:
             echo '- Requested PDA: `M556BXXS4BYH2` (Android 15)'
             echo '- Samsung FUS SmartDownload, native Bifrost client; no external archive URL'
             echo '- The full 8+ GiB firmware is temporary, not uploaded as an artifact'
-            echo '- Artifact includes extracted small images (such as vbmeta) and dynamic partition metadata'
-            echo '- Super and vendor are inspected in a streaming fashion; full super/vendor images are not preserved by this workflow'
+            echo '- Artifact includes vbmeta, LP metadata, vendor/odm VINTF and HAL inventory and AVB descriptor report'
+            echo '- Super is streamed (no 13.6 GB raw super copy); vendor/odm/vendor_dlkm are extracted and audited'
             echo '- **Do not flash** bootloader/vbmeta; nothing is flashed by this job'
           } >> "$GITHUB_STEP_SUMMARY"
           if [ -f out/m55-stock-inspect/summary.txt ]; then
