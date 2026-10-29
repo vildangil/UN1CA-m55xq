@@ -33,10 +33,14 @@ fun main() = runBlocking {
         val body = response.firstElementByTagName("FUSBody")
         val reply = body?.firstElementByTagName("Results")
         val status = reply?.firstElementByTagName("Status")?.text()
-        val binary = body?.firstElementByTagName("Put")
-            ?.firstDataElementDataByTagName("BINARY_NAME") ?: ""
-        val exact = binary.contains(pda)
+        val put = body?.firstElementByTagName("Put")
+        val binary = put?.firstDataElementDataByTagName("BINARY_NAME") ?: ""
+        val bytes = put?.firstDataElementDataByTagName("BINARY_BYTE_SIZE") ?: ""
+        val path = put?.firstDataElementDataByTagName("MODEL_PATH") ?: ""
+        val served = put?.firstDataElementDataByTagName("BINARY_SW_VERSION") ?: ""
+        val exact = binary.contains(pda) && bytes.toLongOrNull()?.let { it > 0 } == true && path.isNotBlank()
         println("BIFROST_EXACT pda=$pda status=$status exact=$exact")
+        println("BIFROST_METADATA pda=$pda filenamePresent=${binary.isNotBlank()} size=$bytes pathPresent=${path.isNotBlank()} servedVersion=${served.ifBlank { "(none)" }}")
         println("BIFROST_VERSION $version")
     }
 }
