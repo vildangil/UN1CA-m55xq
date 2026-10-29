@@ -172,6 +172,10 @@ class SmartClient:
         nonce = headers.get("NONCE", "")
         if nonce:
             self.nonce = nonce[:16]
+            if self.auth_data is not None:
+                # Samsung rotates NONCE after each response; the signature
+                # must be recomputed before the following BinaryInform.
+                self.auth = transform_auth(self.auth_data, self.nonce[:16])
         cookie = headers.get("Set-Cookie", "")
         for item in cookie.split(";"):
             if item.strip().startswith("JSESSIONID="):
