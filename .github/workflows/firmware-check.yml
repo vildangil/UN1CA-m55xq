@@ -63,6 +63,29 @@ jobs:
           retry_on: error
           command: python3 scripts/m55_firmware_probe.py
 
+      - name: Verify download-only helper loading
+        shell: bash
+        env:
+          UNICA_FIRMWARE_ONLY: '1'
+        run: |
+          set -euo pipefail
+          bash -n scripts/download_fw.sh scripts/utils/firmware_utils.sh scripts/utils/common_utils.sh
+          bash -c 'source "$SRC_DIR/scripts/utils/firmware_utils.sh"; declare -F GET_LATEST_FIRMWARE; declare -F PARSE_FIRMWARE_STRING'
+          echo 'PASS: firmware download helpers load without the full ROM toolchain'
+
+      - name: Install missing host dependencies for donor download
+        if: ${{ inputs.mode == 'download-donor' }}
+        shell: bash
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get install -yq --no-install-recommends \
+            attr ffmpeg protobuf-compiler webp
+          for cmd in cwebp ffmpeg getfattr protoc; do
+            command -v "$cmd"
+          done
+
       - name: Install Samloader for donor download
         if: ${{ inputs.mode == 'download-donor' }}
         shell: bash
@@ -76,6 +99,8 @@ jobs:
 
       - name: Download stock firmware (UN1CA S22 donor only)
         if: ${{ inputs.mode == 'download-donor' }}
+        env:
+          UNICA_FIRMWARE_ONLY: '1'
         uses: nick-fields/retry@v4
         with:
           timeout_minutes: 60
