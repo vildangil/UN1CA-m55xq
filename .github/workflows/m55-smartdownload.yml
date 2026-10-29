@@ -2,12 +2,6 @@ name: M55 Bifrost 2 SmartDownload probe
 
 on:
   workflow_dispatch:
-  push:
-    branches: [sixteen]
-    paths:
-      - scripts/m55_smartdownload_probe.py
-      - .github/workflows/m55-smartdownload.yml
-
 permissions:
   contents: read
 
