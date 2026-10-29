@@ -226,6 +226,24 @@ def main():
               len(report["fota_history_matches"]), flush=True)
         client = SmartClient()
         client.new_nonce()
+        # Control: check the known-current build *before* history requests.
+        # If even this returns 401, our ported client is not authenticated and
+        # historical availability must be reported as inconclusive.
+        current = historical[0] if historical else ""
+        if current:
+            parts = current.split("/")
+            if len(parts) == 3:
+                parts.append(parts[0])
+            current = "/".join(parts)
+            control, control_http = client.post(
+                "NF_SmartDownloadBinaryInform.do", payload("binary", current, client.nonce))
+            report["latest_control"] = {
+                "requested_pda": current.split("/")[0],
+                "http": control_http, "status": status(control),
+                "served_name_matches": current.split("/")[0] in get_value(control, "BINARY_NAME")
+            }
+            print("Latest-control:", report["latest_control"]["requested_pda"],
+                  "HTTP", control_http, "FUS", status(control), flush=True)
         h, code = client.post("SmartHistory.do", payload("history"), history=True)
         items = []
         if h is not None:
@@ -249,6 +267,7 @@ def main():
                                          if any(pda in v for pda in PDAS)]
         report["smart_history_exact_versions"] = [v for v in items
                                                   if any(pda in v for pda in PDAS)]
+        print("Exact history entries:", report["smart_history_exact_versions"], flush=True)
         for pda in testing:
             from_history = next((v for v in items + historical if pda in v), None)
             if from_history:
