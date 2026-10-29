@@ -1,0 +1,38 @@
+name: M55 historical firmware availability
+
+on:
+  push:
+    branches: [sixteen]
+    paths:
+      - '.github/workflows/m55-historical-firmware.yml'
+      - 'scripts/m55_fus_historical_probe.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check-historical:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          filter: blob:none
+          sparse-checkout: |
+            .gitmodules
+            scripts/m55_fus_historical_probe.py
+            external/samloader
+      - name: Install Samsung FUS client
+        run: |
+          git submodule update --init external/samloader
+          python3 -m pip install --user ./external/samloader
+      - name: Check M55 One UI 7 and One UI 8 exact builds without downloading
+        id: historical
+        run: python3 scripts/m55_fus_historical_probe.py
+      - name: Upload lightweight metadata report
+        uses: actions/upload-artifact@v4
+        with:
+          name: m55-historical-fus-probe
+          path: m55-fus-probe.json
+          retention-days: 7
