@@ -26,10 +26,11 @@ jobs:
       - name: Install Samsung FUS client
         run: |
           git submodule update --init external/samloader
-          python3 -m pip install --user ./external/samloader
+          python3 -m venv "$RUNNER_TEMP/samloader-venv"
+          "$RUNNER_TEMP/samloader-venv/bin/python" -m pip install --disable-pip-version-check ./external/samloader
       - name: Check M55 One UI 7 and One UI 8 exact builds without downloading
         id: historical
-        run: python3 scripts/m55_fus_historical_probe.py
+        run: "$RUNNER_TEMP/samloader-venv/bin/python" scripts/m55_fus_historical_probe.py
       - name: Upload lightweight metadata report
         uses: actions/upload-artifact@v4
         with:
