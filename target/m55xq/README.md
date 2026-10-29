@@ -27,7 +27,7 @@ It preserves the upstream sequence:
 7. unpack using upstream `scripts/extract_fw.sh --ignore-target` (S22) and `--ignore-source` (M55);
 8. derive M55 SEC settings from verified unpacked Samsung stock, regenerate the final build config and refuse unknown/mismatched settings;
 9. by default, patch the three **stock M55** boot-chain images with the user's original `samsung_custom_binary.py`, preserving the original stock files and original `vendor_dlkm.img`; optionally use the pre-tested patched quartet;
-10. run upstream `scripts/make_rom.sh` (target-files only; not flashable).
+10. run upstream `scripts/make_rom.sh` (target-files only; not flashable) and, if it succeeds, upload the checked artifact `M55-UN1CA-OneUI8-UNTESTED-target-files` with its SHA-256 for three days.
 
 **Manual-only**: `workflow_dispatch` has these modes:
 
