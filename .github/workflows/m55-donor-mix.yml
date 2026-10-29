@@ -8,6 +8,11 @@ on:
         type: string
         required: true
         default: "40908265068"
+      assemble_super_preview:
+        description: "Attempt lpmake assembly of a NON-FLASHABLE super preview (not uploaded)"
+        type: boolean
+        required: true
+        default: true
 
 permissions:
   contents: read
@@ -124,6 +129,43 @@ jobs:
           cat out/donor-mix/DO_NOT_FLASH.txt
           cat out/donor-mix/candidate_partition_manifest.json
 
+      - name: Build native Android liblp tools for preliminary super assembly
+        if: ${{ inputs.assemble_super_preview }}
+        shell: bash
+        timeout-minutes: 25
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build pkg-config liblz4-dev libzstd-dev libssl-dev libselinux1-dev
+          git clone --depth 1 https://github.com/UN1CA/external_android-tools.git "$RUNNER_TEMP/m55-android-tools"
+          cmake -S "$RUNNER_TEMP/m55-android-tools" \
+            -B "$RUNNER_TEMP/m55-android-tools/build" \
+            -DANDROID_TOOLS_USE_BUNDLED_FMT=ON \
+            -DANDROID_TOOLS_USE_BUNDLED_LIBUSB=ON
+          cmake --build "$RUNNER_TEMP/m55-android-tools/build" --target lpmake -j 4
+          tool="$(find "$RUNNER_TEMP/m55-android-tools/build" -type f -name lpmake -perm -u+x | head -n 1)"
+          test -n "$tool"
+          mkdir -p "$RUNNER_TEMP/m55-bin"
+          cp "$tool" "$RUNNER_TEMP/m55-bin/lpmake"
+          echo "$RUNNER_TEMP/m55-bin" >> "$GITHUB_PATH"
+
+      - name: Assemble and measure UNVERIFIED S22+M55 super preview
+        if: ${{ inputs.assemble_super_preview }}
+        shell: bash
+        timeout-minutes: 45
+        run: |
+          set -euo pipefail
+          test -s out/donor-mix/lpmake_candidate_preview.sh
+          bash out/donor-mix/lpmake_candidate_preview.sh
+          test -s out/M55-ONEUI8-CANDIDATE-UNVERIFIED-super.img
+          stat -c 'M55_SUPER_PREVIEW_BYTES=%s' out/M55-ONEUI8-CANDIDATE-UNVERIFIED-super.img
+          sha256sum out/M55-ONEUI8-CANDIDATE-UNVERIFIED-super.img \
+            > out/donor-mix/candidate_super_sha256.txt
+          # Large/unverified image deliberately not published or declared flashable.
+          rm -f out/M55-ONEUI8-CANDIDATE-UNVERIFIED-super.img
+          echo "M55_SUPER_PREVIEW_CREATED_AND_REMOVED_NOT_FLASHABLE"
+
       - name: Upload donor-mix reports only, no unverified images
         if: always()
         uses: actions/upload-artifact@v4
@@ -144,5 +186,5 @@ jobs:
             echo "- Verify donor EROFS and 13,627,293,696-byte M55 LP group limit"
             echo "- Stage includes NO unverified vbmeta, modified boot images or automatic flash actions"
             echo "- Passing metadata and geometry does not prove Samsung framework/HAL/VINTF compatibility"
-            echo "- Output is a manifest/recipe; NOT a bootable/flashable UN1CA ROM"
+            echo "- Output is a manifest/recipe and optional temporary super geometry experiment; NOT a bootable/flashable UN1CA ROM"
           } >> "$GITHUB_STEP_SUMMARY"
