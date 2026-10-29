@@ -55,6 +55,11 @@ jobs:
             unica/configs
             external/samloader
 
+      - name: Lint M55 firmware download and verification scripts
+        shell: bash
+        run: |
+          bash -n scripts/download_fw.sh scripts/m55_verify_oneui7.sh
+
       - name: Check Samsung FOTA firmware metadata
         uses: nick-fields/retry@v4
         with:
@@ -116,6 +121,15 @@ jobs:
           max_attempts: 3
           retry_on: error
           command: bash scripts/m55_verify_oneui7.sh
+
+      - name: Save small M55 One UI 7 manifest, not firmware
+        if: ${{ inputs.mode == 'verify-m55-oneui7' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: m55-oneui7-archive-manifest
+          path: m55-oneui7-report.txt
+          retention-days: 14
+          if-no-files-found: error
 
       - name: Explain validation scope
         if: always()
