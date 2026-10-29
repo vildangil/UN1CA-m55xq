@@ -146,6 +146,13 @@ PARSE_FIRMWARE_STRING()
     if [ ! "$THIRD" ]; then
         LOGE "No IMEI/SN value found in \"$STRING\""
         return 1
+    elif [[ "$THIRD" == "CACHE" ]] && [[ "$MODEL" == "SM-M556B" ]] && \
+            [[ "${UNICA_PINNED_FIRMWARE_ONLY:-0}" == "1" ]]; then
+        # Historical Samsung firmware has been downloaded and verified by the
+        # native Bifrost client, without a device identifier. This CACHE
+        # sentinel is *only* for original UN1CA's local Odin extraction path.
+        # Never allow it through the normal Samloader network downloader.
+        :
     elif [[ "${#THIRD}" == "11" ]] && [[ "$THIRD" == "R"* ]]; then
         # shellcheck disable=SC2034
         SERIAL_NO="$THIRD"
