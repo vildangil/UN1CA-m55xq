@@ -3,7 +3,7 @@
 Source: Samsung FUS SmartDownload, Bifrost 2.x, firmware
 `M556BXXS4BYH2/M556BODM4BYH2/M556BXXS4BYH2/M556BXXS4BYH2` (INS, Android 15).
 
-Verified GitHub Actions run: https://github.com/vildangil/UN1CA-m55xq/actions/runs/40835409448
+Verified GitHub Actions runs:\n- 2026-10-29 base partition/AVB metadata: https://github.com/vildangil/UN1CA-m55xq/actions/runs/40835409448\n- 2026-10-29 vendor/ODM/kernel module extraction and VINTF audit: https://github.com/vildangil/UN1CA-m55xq/actions/runs/40908265068
 
 ## Super / liblp verified from stock super.img
 
@@ -49,9 +49,28 @@ Both stock vbmeta images contain AVB0 headers, AVB flags **0**, and algorithm id
 
 The custom `boot` and `vendor_boot` differ from the hashes in stock and must **not** be combined with unchanged stock vbmeta as though the images still matched. The `vendor_dlkm` image contains an EROFS magic at offset 1024, but its contents and kernel-module compatibility still need to be checked against stock vendor/ODM.
 
-## Remaining check
+## Verified vendor, ODM, and kernel-module extraction (2026-10-29)
 
-The manual-only workflow [M55 One UI 7 stock image inspection](https://github.com/vildangil/UN1CA-m55xq/actions/workflows/m55-stock-inspect.yml)
-now includes streamed extraction of `vendor`, `odm`, and `vendor_dlkm`, filesystem inspection, VINTF/HAL and kernel module inventory, and a separate AVB descriptor report. This second-stage analysis is **not yet verified** by a completed run.
+Manual-only GitHub Actions run [#40908265068](https://github.com/vildangil/UN1CA-m55xq/actions/runs/40908265068) completed successfully. Samsung FUS returned **exactly** `M556BXXS4BYH2`; 8,560,869,744 encrypted bytes were downloaded, decrypted to ZIP, CRC-checked, and its `super.img.lz4` was streamed into separate logical partition images without ever creating a full-size raw super.
 
-No scripts in this workflow flash images, unlock devices, or overwrite the user's patched images.
+| Partition | Size (bytes) | SHA-256 | Files | Other details |
+| --- | ---: | --- | ---: | --- |
+| `vendor` | 2008227840 | `825c78c6855e837b07d65e6e30d30959ef2caab43bf7eaeb12a305d0f8a34203` | 3731 | 106 HAL shared libraries, 238 extracted configuration files |
+| `odm` | 1699840 | `a6520727edcb70a1119368538d9ba566f571d71b300963ffcf819947db075f82` | 12 | 3 configuration files |
+| `vendor_dlkm` | 126201856 | `e52e39b4b5443d398528c21a483757c3af673a29d39ba46bd086d17361d92ae4` | 320 | 311 `.ko` kernel modules, 5 configuration files |
+
+All three extracted images have EROFS magic `e2e1f5e0` at byte offset 1024. The `vendor_dlkm/lib/modules/modules.load` has 314 lines, 311 unique module filenames; all 311 unique names exist as stock `.ko` files (three duplicates in the load list).
+
+Stock `vendor/build.prop` confirms `ro.product.vendor.device=m55xq`, `ro.product.vendor.model=SM-M556B`, `ro.product.board=taro`, and `ro.board.platform=taro`. **Important**: while the overall Samsung firmware is One UI 7 (Android 15), vendor reports `ro.vendor.build.version.sdk=32` and an Android 12 vendor fingerprint (`SP2A.220305.013`). This is the stock vendor-side release/API reported in the image, not evidence that the whole firmware was Android 12. Keep its vendor compatibility assumptions separate from the system port.
+
+Stock `vendor/etc/fstab.qcom` defines `system`, `system_ext`, `product`, `vendor`, `odm`, and `vendor_dlkm` as `logical,first_stage_mount` EROFS devices protected by AVB. `system` and `vendor` explicitly reference `vbmeta_system`; do not remove the AVB chain implicitly when mixing custom and stock partitions.
+
+The original stock `vbmeta.img` has 18 descriptors: hashes for `boot`, `recovery`, and `vendor_boot`, six hashtrees, chained descriptors, and properties. Stock `vbmeta_system.img` has six hashtrees. Both are signed and have flags 0. The pre-existing patched `boot`/`vendor_boot` hashes differ from stock. Mixing a modified boot chain with unmodified stock vbmeta has not been validated.
+
+Artifacts from run #40908265068 (temporary, until GitHub's configured expiration):
+- [Metadata, vbmeta, extracted configs, full file/HAL inventories](https://github.com/vildangil/UN1CA-m55xq/actions/runs/40908265068/artifacts/12915305501) (about 86 MB)
+- [Raw vendor/odm/vendor_dlkm partition images](https://github.com/vildangil/UN1CA-m55xq/actions/runs/40908265068/artifacts/12914676290) (about 2.14 GB)
+
+## Remaining compatibility work
+
+Compare the **contents**, module ABI and load order of the user's patched `vendor_dlkm` against the stock 311 modules, then reconcile vendor VINTF HAL declarations with the One UI 8 framework and the S22 donor. Do not assume kernel/AVB compatibility from a successful extraction job. None of these results constitute a boot test, and no workflow flashed, unlocked, or overwrote the user's patched boot-chain images.
