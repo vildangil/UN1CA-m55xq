@@ -65,9 +65,45 @@ fun main() = runBlocking {
         request = FusClient.Request.BINARY_INIT, data = init
     )
     println("M55_FETCH_BINARY_INIT received=${result.isNotBlank()}")
-    val auth = FusClient.getAuthV()
-    val headers = FusClient.createHeaders(auth)
+    var headers = FusClient.createHeaders(FusClient.getAuthV())
     val url = FusClient.getDownloadUrl(remotePath + fileName)
+
+    // A single Samsung CDN authorization was accepted for only the first two
+    // 128-MiB range requests in the first run; subsequent requests got HTTP 401.
+    // Re-negotiate the *exact* firmware in the native Bifrost client when a
+    // ranged request is rejected, and never silently substitute FUS latest.
+    suspend fun refreshDownloadAuthorization() {
+        FusClient.generateNonce()
+        val (_, retryResponse) = Request.performBinaryInformRetry(
+            fw = version, model = model, region = region,
+            imeiSerial = "", includeNonce = false, legacy = false
+        )
+        val retryBody = retryResponse.firstElementByTagName("FUSBody")
+        val retryStatus = retryBody?.firstElementByTagName("Results")
+            ?.firstElementByTagName("Status")?.text()
+        val retryPut = retryBody?.firstElementByTagName("Put")
+        val retryServed = retryPut?.firstDataElementDataByTagName("BINARY_SW_VERSION").orEmpty()
+        val retryFile = retryPut?.firstDataElementDataByTagName("BINARY_NAME").orEmpty()
+        val retryPath = retryPut?.firstDataElementDataByTagName("MODEL_PATH").orEmpty()
+        val retrySize = retryPut?.firstDataElementDataByTagName("BINARY_BYTE_SIZE")?.toLongOrNull()
+        check(retryStatus in setOf("200", "S00") &&
+              retryServed == version && retryFile == fileName &&
+              retryPath == remotePath && retrySize == length) {
+            "FUS renewal did not return identical One UI 7 firmware"
+        }
+        val retryInit = Request.createBinaryInit(
+            fileName = fileName, nonce = IFusClient.getNonce(false),
+            fw = retryServed,
+            modelType = retryPut?.firstDataElementDataByTagName("DEVICE_MODEL_TYPE"),
+            region = region, legacy = false
+        )
+        val retryInitResponse = IFusClient.selectClientAndMakeRequest(
+            request = FusClient.Request.BINARY_INIT, data = retryInit
+        )
+        check(retryInitResponse.isNotBlank()) { "FUS renewal BinaryInit empty" }
+        headers = FusClient.createHeaders(FusClient.getAuthV())
+        println("M55_FETCH_AUTH_RENEWED for exact build $desiredPda")
+    }
     out.parentFile?.mkdirs()
 
     val chunkSize = 128L * 1024L * 1024L
@@ -115,6 +151,11 @@ fun main() = runBlocking {
                 } catch (exc: Exception) {
                     lastError = "${exc.javaClass.simpleName}: ${exc.message?.take(160)}"
                     println("M55_FETCH_RETRY part=$segment attempt=$attempt reason=$lastError")
+                    if (exc.message?.contains("Bad HTTP range response: 401") == true) {
+                        // 401 is an expired or rejected Samsung session.
+                        // Refresh authorization instead of retrying stale headers.
+                        refreshDownloadAuthorization()
+                    }
                     if (attempt < 4) Thread.sleep((attempt * 3000).toLong())
                 } finally {
                     conn.disconnect()
