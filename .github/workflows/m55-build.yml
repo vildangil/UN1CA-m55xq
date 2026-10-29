@@ -1,0 +1,98 @@
+name: M55 UN1CA prototype build
+
+on:
+  workflow_dispatch:
+    inputs:
+      stock_run_id:
+        description: "Successful M55 stock inspection run providing verified raw and metadata artifacts"
+        type: string
+        required: true
+        default: "40908265068"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: m55-un1ca-prototype-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  stage-stock-vendor:
+    name: Verify and stage stock M55 partitions (non-flashable)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      STOCK_RUN_ID: ${{ inputs.stock_run_id }}
+    steps:
+      - name: Checkout M55 UN1CA source
+        uses: actions/checkout@v4
+
+      - name: Check stage compiler syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/m55_build_stage.py scripts/m55_build_readiness.py
+          bash -n target/m55xq/config.sh platform/sm7450/config.sh
+          bash scripts/m55xq_preflight.sh
+
+      - name: Download verified M55 stock raw EROFS images from previous run
+        uses: actions/download-artifact@v4
+        with:
+          name: M55-OneUI7-BYH2-vendor-odm-vendor_dlkm-raw
+          run-id: ${{ inputs.stock_run_id }}
+          repository: ${{ github.repository }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: out/stock/raw
+
+      - name: Download verified M55 stock partition and AVB metadata
+        uses: actions/download-artifact@v4
+        with:
+          name: M55-OneUI7-BYH2-images-and-super-metadata
+          run-id: ${{ inputs.stock_run_id }}
+          repository: ${{ github.repository }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: out/stock/meta
+
+      - name: Validate real image content, stock vendor fstab and dynamic layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/m55_build_stage.py \
+            out/stock/raw out/stock/meta out/m55-stage0
+          python3 scripts/m55_build_readiness.py . out/m55-stage0
+          cat out/m55-stage0/DO_NOT_FLASH.txt
+
+      - name: Create non-flashable stage manifest package
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd out/m55-stage0
+          zip -9 -q ../M55-UN1CA-PROTOTYPE-STAGE0-NOT-FLASHABLE.zip \
+            m55_stage0.json m55_build_readiness.json DO_NOT_FLASH.txt
+          unzip -t ../M55-UN1CA-PROTOTYPE-STAGE0-NOT-FLASHABLE.zip
+          sha256sum ../M55-UN1CA-PROTOTYPE-STAGE0-NOT-FLASHABLE.zip
+
+      - name: Upload verified stage manifest and build blockers
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: M55-UN1CA-PROTOTYPE-STAGE0-NOT-FLASHABLE
+          path: |
+            out/m55-stage0/
+            out/M55-UN1CA-PROTOTYPE-STAGE0-NOT-FLASHABLE.zip
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Explain assembly scope
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### UN1CA M55 prototype assembly status"
+            echo "- This job verifies Galaxy M55 One UI 7 vendor/odm/vendor_dlkm as reusable build inputs."
+            echo "- The verified raw 2.14 GB artifact remains available separately in the stock inspection run."
+            echo "- It deliberately does NOT substitute S22 boot/kernel, stock vbmeta, or unverified hardware SEC flags."
+            echo "- Full UN1CA 8 system/product build and patched kernel integration are separate remaining steps."
+            echo "- DO NOT FLASH: this job produces metadata only, not a ROM or usable super image."
+          } >> "$GITHUB_STEP_SUMMARY"
