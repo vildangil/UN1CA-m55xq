@@ -1,6 +1,12 @@
 name: M55 firmware verification
 
 on:
+  push:
+    branches: [sixteen]
+    paths:
+      - '.github/workflows/firmware-check.yml'
+      - 'scripts/m55_firmware_probe.py'
+      - 'scripts/m55_verify_oneui7.sh'
   workflow_dispatch:
     inputs:
       mode:
@@ -35,7 +41,7 @@ jobs:
       ODIN_DIR: ${{ github.workspace }}/out/odin
       FW_DIR: ${{ github.workspace }}/out/fw
       TOOLS_DIR: ${{ github.workspace }}/out/tools
-      M55_CSC: ${{ inputs.m55_csc }}
+      M55_CSC: ${{ inputs.m55_csc || 'INS' }}
       M55_ONEUI7_URL: ${{ secrets.M55_ONEUI7_URL }}
       M55_ONEUI7_SHA256: ${{ secrets.M55_ONEUI7_SHA256 }}
     steps:
