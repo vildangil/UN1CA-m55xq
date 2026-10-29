@@ -197,13 +197,31 @@ jobs:
           echo "::notice::This bootstrap config is valid ONLY for build_dependencies and stock firmware extraction, not ROM packaging."
 
       - name: Set up build environment
+        shell: bash
         run: |
-          sudo apt update
-          DEBIAN_FRONTEND=noninteractive sudo apt install -yq \
+          set -euo pipefail
+          # Hosted ubuntu-24.04 runners may use an Azure kernel whose
+          # linux-modules-extra-$(uname -r) package is not published.
+          # Do not make all UN1CA dependencies fail for that optional package.
+          echo "M55_RUNNER_KERNEL=$(uname -r)"
+          sudo apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install -yq --no-install-recommends \
             attr ccache clang ffmpeg libbrotli-dev libbz2-dev \
             libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev \
-            libzstd-dev linux-modules-extra-$(uname -r) lld protobuf-compiler webp
-          sudo modprobe erofs f2fs
+            libzstd-dev lld protobuf-compiler webp
+          # F2FS is required for the S22 donor; EROFS can also be accessed
+          # through UN1CA's fuse.erofs. The host filesystem module check is
+          # advisory, not a reason to install nonexistent Azure kernel packages.
+          for filesystem in erofs f2fs; do
+            if grep -qw "$filesystem" /proc/filesystems; then
+              echo "M55_HOST_FILESYSTEM_READY=$filesystem"
+            elif sudo modprobe -q "$filesystem" 2>/dev/null && grep -qw "$filesystem" /proc/filesystems; then
+              echo "M55_HOST_FILESYSTEM_LOADED=$filesystem"
+            else
+              echo "::warning::Runner kernel $(uname -r) does not expose $filesystem; extraction may require a different runner kernel or userspace tooling."
+              echo "M55_HOST_FILESYSTEM_UNAVAILABLE=$filesystem"
+            fi
+          done
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
