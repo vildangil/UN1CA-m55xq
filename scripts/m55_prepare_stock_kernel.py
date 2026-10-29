@@ -42,8 +42,10 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--kernel-dir", type=Path, required=True,
                     help="Original extracted M55 stock kernel directory")
-    ap.add_argument("--vendor-dlkm", type=Path, required=True,
+    ap.add_argument("--vendor-dlkm", type=Path,
                     help="Preserved stock M55 vendor_dlkm.img before upstream extraction deletes it")
+    ap.add_argument("--boot-only", action="store_true",
+                    help="Audit and patch only boot/vendor_boot/dtbo, e.g. from the 86 MB stock inspection artifact")
     ap.add_argument("--output-dir", type=Path, required=True,
                     help="Output directory for separately patched copies")
     args = ap.parse_args()
@@ -58,12 +60,17 @@ def main():
         "firmware": "M556BXXS4BYH2",
         "method": "original user-provided samsung_custom_binary.py (SignerVer02)",
         "input_mode": "pinned_stock",
+        "boot_only": args.boot_only,
         "partitions": {},
         "bootloader_modified": False,
         "vbmeta_system_modified": False,
         "flash_tested": False,
     }
+    if not args.boot_only and args.vendor_dlkm is None:
+        ap.error("--vendor-dlkm required unless --boot-only was specified")
     for name, (size, expected_sha) in SOURCE.items():
+        if args.boot_only and name == "vendor_dlkm.img":
+            continue
         src = args.vendor_dlkm if name == "vendor_dlkm.img" else stock / name
         if not src.is_file() or src.stat().st_size != size:
             raise ValueError(f"{name}: original stock size mismatch or file missing")
