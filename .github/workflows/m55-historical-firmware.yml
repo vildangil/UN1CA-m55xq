@@ -1,13 +1,7 @@
 name: M55 historical firmware availability
 
 on:
-  push:
-    branches: [sixteen]
-    paths:
-      - '.github/workflows/m55-historical-firmware.yml'
-      - 'scripts/m55_fus_historical_probe.py'
   workflow_dispatch:
-
 permissions:
   contents: read
 
