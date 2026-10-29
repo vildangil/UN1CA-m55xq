@@ -35,7 +35,8 @@ def u32(blob, offset):
     return struct.unpack_from("<I", blob, offset)[0]
 
 
-def metadata_extents(blob):
+def metadata_extents(blob, requested=None):
+    requested = set(requested if requested is not None else TARGETS)
     geometry_offset = next((x for x in (4096, 8192)
                             if u32(blob, x) == 0x616c4467), None)
     if geometry_offset is None:
@@ -68,7 +69,7 @@ def metadata_extents(blob):
     layout = {}
     for part in parts:
         label = part[:36].split(b"\0")[0].decode("ascii", "replace")
-        if label not in TARGETS:
+        if label not in requested:
             continue
         _, first, count, _ = struct.unpack_from("<IIII", part, 36)
         if first + count > len(extents):
@@ -86,8 +87,8 @@ def metadata_extents(blob):
                                 "offset": logical_offset})
             logical_offset += byte_count
         layout[label] = {"length": logical_offset, "regions": regions}
-    if any(x not in layout for x in ("vendor", "odm")):
-        raise ValueError("Required vendor or odm LP extents absent")
+    if not requested.issubset(layout):
+        raise ValueError("Requested LP partitions absent: " + str(requested - layout.keys()))
     return layout
 
 
