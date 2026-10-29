@@ -376,6 +376,40 @@ jobs:
           ./scripts/make_rom.sh
           echo "::warning::Target-files package has NOT been boot-tested. Do NOT flash it."
 
+      - name: Verify and checksum UNTESTED UN1CA target-files archive
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          archives=(out/m55xq_*target_files.zip)
+          if (( ${#archives[@]} != 1 )); then
+            echo "::error::Expected exactly one original UN1CA M55 target-files archive; found ${#archives[@]}"
+            exit 1
+          fi
+          unzip -t "${archives[0]}" | tail -n 4
+          sha256sum "${archives[0]}" > out/m55xq-target-files.sha256
+          cat > out/M55-UNTESTED-DO-NOT-FLASH.txt <<'EOF'
+          UN1CA One UI 8 Galaxy M55 experimental target-files.
+          UNTESTED. This is not an installable/flashable ROM ZIP.
+          Do not flash or install until AVB, VINTF, SELinux, kernel ABI,
+          firmware rollback indices and installation assertions are verified.
+          EOF
+          echo "M55_UN1CA_TARGET_FILES_CREATED_UNTESTED"
+
+      - name: Upload experimental M55 target-files (unflashable, analysis only)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: M55-UN1CA-OneUI8-UNTESTED-target-files
+          path: |
+            out/m55xq_*target_files.zip
+            out/m55xq-target-files.sha256
+            out/M55-UNTESTED-DO-NOT-FLASH.txt
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
       - name: Upload M55 stock hardware feature evidence even on failure
         if: always()
         uses: actions/upload-artifact@v4
