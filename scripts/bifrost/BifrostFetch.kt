@@ -22,10 +22,15 @@ import javax.crypto.spec.SecretKeySpec
  * IN PLACE to avoid an additional 8 GiB copy.
  */
 fun main() = runBlocking {
-    val model = "SM-M556B"
-    val region = "INS"
-    val desiredPda = "M556BXXS4BYH2"
-    val out = File(System.getenv("M55_STOCK_ZIP") ?: "m55-oneui7.zip")
+    // Defaults preserve the validated historical M55 downloader.
+    // The donor build uses explicit environment variables (no IMEI).
+    val model = System.getenv("FUS_MODEL") ?: "SM-M556B"
+    val region = System.getenv("FUS_REGION") ?: "INS"
+    val desiredPda = System.getenv("FUS_PDA") ?: "M556BXXS4BYH2"
+    val out = File(System.getenv("FUS_OUTPUT_ZIP")
+        ?: System.getenv("M55_STOCK_ZIP") ?: "m55-oneui7.zip")
+    check(model.matches(Regex("SM-[A-Z0-9]+")) && region.matches(Regex("[A-Z0-9]{3}")) &&
+          desiredPda.matches(Regex("[A-Z0-9]{10,20}"))) { "Invalid FUS model/region/PDA" }
     val history = VersionFetch.parseHistoryInfos(
         VersionFetch.performHistoryRequest(model, region)
     )
