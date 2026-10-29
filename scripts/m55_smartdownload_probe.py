@@ -210,8 +210,10 @@ def history_from_fota():
     root = parse_xml(raw)
     if code != 200 or root is None:
         return []
-    return [e.text.strip() for e in root.findall(".//version/upgrade/value")
-            if e.text and e.text.strip()]
+    matches = [e.text.strip() for e in root.findall(".//version/upgrade/value")
+               if e.text and e.text.strip()]
+    latest = root.findtext(".//version/latest", default="")
+    return ([latest] if latest else []) + matches
 
 
 def main():
@@ -237,7 +239,17 @@ def main():
                                            if any(p in v for p in PDAS)]
         print("SmartHistory: HTTP", code, "entries", len(items),
               "matching", len(report["smart_history_matches"]), flush=True)
-        for pda in PDAS:
+        latest_version = next((v for v in historical if v.startswith("M556B")),
+                              items[-1] if items else "")
+        latest_pda = latest_version.split("/")[0] if latest_version else ""
+        testing = list(PDAS)
+        if latest_pda and latest_pda not in testing:
+            testing.append(latest_pda)
+        report["fota_exact_versions"] = [v for v in historical
+                                         if any(pda in v for pda in PDAS)]
+        report["smart_history_exact_versions"] = [v for v in items
+                                                  if any(pda in v for pda in PDAS)]
+        for pda in testing:
             from_history = next((v for v in items + historical if pda in v), None)
             if from_history:
                 parts = from_history.split("/")
