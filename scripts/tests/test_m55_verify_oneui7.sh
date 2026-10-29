@@ -51,7 +51,10 @@ RESULT=$?
 set -e
 [[ "$RESULT" == 22 ]] || { echo "Expected curl status 22, got $RESULT"; exit 1; }
 grep -q 'HTTP 403' "$TMP/deny.log"
-! grep -q 'must-not-print' "$TMP/deny.log"
+if grep -q 'must-not-print' "$TMP/deny.log"; then
+    echo 'ERROR: private firmware URL was exposed in the log' >&2
+    exit 1
+fi
 echo "PASS: HTTP 403 fails immediately without leaking URL"
 
 TEST_HTTP_STATUS=200 TEST_FIXTURE="$TMP/fixture.zip" \
