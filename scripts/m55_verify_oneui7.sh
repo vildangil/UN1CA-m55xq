@@ -59,16 +59,16 @@ from pathlib import Path
 zip_path, report_path = sys.argv[1:]
 with zipfile.ZipFile(zip_path) as z:
     names = [name for name in z.namelist()
-             if re.search(r"(?:^|/)AP_M556BXXS4BYH2_[^/]*\\.tar\\.md5$", name)]
+             if re.search(r"(?:^|/)AP_M556BXXS4BYH2_[^/]*\.tar\.md5$", name)]
     if not names:
         raise SystemExit("Missing expected AP entry")
     with z.open(names[0]) as inner:
         with tarfile.open(fileobj=inner, mode="r|") as tar:
             with open(report_path, "a", encoding="utf-8") as report:
-                report.write("\\nAP tar members (name + stored length):\\n")
+                report.write("\nAP tar members (name + stored length):\n")
                 for entry in tar:
                     if entry.isfile():
-                        report.write(f"{entry.name} {entry.size}\\n")
+                        report.write(f"{entry.name} {entry.size}\n")
 PY
 echo "PASS: verified M55 One UI 7 archive remotely"
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
