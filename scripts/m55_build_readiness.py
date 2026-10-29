@@ -33,8 +33,9 @@ report = {
     "missing_feature_definitions": missing,
     "empty_by_default": known_empty,
     "build_is_flash_ready": False,
-    "remedy": "Derive M55-specific SEC fields from the actual firmware and verify "
-              "patched kernel/AVB, VINTF and donor compatibility before building a flashable ZIP.",
+    "scope": "static preflight of committed target config only; the full CI build now attempts stock-derived values after extracting exact M556BXXS4BYH2",
+    "stock_automatic_feature_probe": "scripts/m55_derive_features.py",
+    "remedy": "Run manual CI build to collect real M55 floating_feature.xml and policy evidence; unknown features block make_rom. Verify kernel/AVB, VINTF and donor compatibility before any flash.",
 }
 out.mkdir(parents=True, exist_ok=True)
 (out / "m55_build_readiness.json").write_text(json.dumps(report, indent=2) + "\n")
