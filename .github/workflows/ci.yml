@@ -13,7 +13,13 @@ on:
         default: preflight
         options:
           - preflight
+          - stock_custom_images
           - build
+      stock_run_id:
+        type: string
+        description: "Existing successful Samsung M55 stock image inspection run"
+        required: true
+        default: "40908265068"
       kernel_source:
         type: choice
         description: "boot chain for build: stock M55 + user's Custom Binary patch, or previously tested image quartet"
@@ -25,6 +31,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -89,6 +96,54 @@ jobs:
           name: M55-original-UN1CA-config-readiness
           path: out/m55-ci-readiness/m55_build_readiness.json
           retention-days: 14
+
+  stock-custom-images:
+    name: Prepare verified M55 stock Custom Binary images
+    if: ${{ inputs.mode == 'stock_custom_images' }}
+    needs: [shellcheck, generate-matrix]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout owner's exact Samsung Custom Binary source
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            scripts/m55/samsung_custom_binary.py
+            scripts/m55_prepare_stock_kernel.py
+
+      - name: Download original stock M55 AP small images from successful inspection
+        uses: actions/download-artifact@v4
+        with:
+          name: M55-OneUI7-BYH2-images-and-super-metadata
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.stock_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: out/m55-original-images
+
+      - name: Run owner's SignerVer02 patcher on verified stock boot/vendor_boot/dtbo
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/m55_prepare_stock_kernel.py \
+            --boot-only \
+            --kernel-dir out/m55-original-images \
+            --output-dir out/m55-stock-custom-boot
+          cat > out/m55-stock-custom-boot/DO_NOT_FLASH.txt <<'EOF'
+          M55 STOCK CUSTOM BINARY IMAGES — NOT VALIDATED FOR FLASHING.
+          This is the original user's SignerVer02 patch applied to M556BXXS4BYH2.
+          No bootloader rollback or AVB trust chain has been modified.
+          Samsung bootloader/AVB state, kernel ABI and rollback checks are unverified.
+          EOF
+          cat out/m55-stock-custom-boot/stock_custom_binary_report.json
+
+      - name: Upload stock Custom Binary images and checksums
+        uses: actions/upload-artifact@v4
+        with:
+          name: M55-BYH2-stock-Custom-Binary-BOOT-TEST-ONLY
+          path: out/m55-stock-custom-boot/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 1
 
   build:
     name: Build
