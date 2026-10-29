@@ -20,10 +20,32 @@ DEST="${RUNNER_TEMP:-/tmp}/M556BXXS4BYH2.zip"
 REPORT="${GITHUB_WORKSPACE:-.}/m55-oneui7-report.txt"
 # Do not echo the temporary signed link into public workflow logs.
 echo "Downloading M556BXXS4BYH2 archive to ephemeral GitHub runner..."
-curl --fail --location --silent --show-error \
-    --retry 4 --retry-all-errors --retry-delay 8 \
-    --connect-timeout 30 --continue-at - \
-    --output "$DEST" "$M55_ONEUI7_URL"
+# Retry transient transport errors and HTTP 408/429/5xx, never permanent
+# authorization errors (401/403). Do not print the signed URL or its token.
+HTTP_STATUS=""
+if HTTP_STATUS="$(curl --fail --location --silent --show-error \
+    --retry 3 --retry-delay 10 --connect-timeout 30 \
+    --continue-at - --write-out '%{http_code}' \
+    --output "$DEST" "$M55_ONEUI7_URL")"; then
+    echo "Remote download accepted (HTTP $HTTP_STATUS)."
+else
+    CURL_EXIT=$?
+    case "$HTTP_STATUS" in
+        401|403)
+            rm -f "$DEST"
+            echo "::error::Remote archive access denied (HTTP $HTTP_STATUS). The signed URL may be expired, tied to a browser login, or blocked for GitHub runner IPs." >&2
+            echo "Use an authorized public direct-download URL or a link explicitly usable from a cloud runner. Retry with the same SamFW URL will not help." >&2
+            ;;
+        404|410)
+            rm -f "$DEST"
+            echo "::error::Archive URL is unavailable (HTTP $HTTP_STATUS). Check the original host's share/download settings." >&2
+            ;;
+        *)
+            echo "::error::Firmware download failed (HTTP $HTTP_STATUS, curl exit $CURL_EXIT)." >&2
+            ;;
+    esac
+    exit "$CURL_EXIT"
+fi
 
 echo "Checking ZIP container..."
 unzip -tq "$DEST" >/dev/null || { echo "Downloaded file is not a valid ZIP" >&2; exit 1; }
