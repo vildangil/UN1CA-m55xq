@@ -5,12 +5,18 @@
 This fork intentionally has **one device target only**: `target/m55xq`. Upstream targets remain available at https://github.com/salvogiangri/UN1CA/tree/sixteen/target.
 
 ## Current status
-- Port skeleton and boot-chain overlay added; **not boot tested**.
+- Port skeleton and boot-chain overlay added; **not boot tested**. A manual-only stock staging build now exists at `.github/workflows/m55-build.yml`; it validates real EROFS input images but is **not a complete ROM**.
 - Existing local images: `boot.img`, `dtbo.img`, `vendor_boot.img`, `vendor_dlkm.img`.
 - The AnyKernel3 archive contains an Image that differs from the supplied boot image; user confirmed the boot image simply has an older kernel build. **No auto replacement** is performed.
-- No original M55 vbmeta is available. This port **does not copy, create, flash or patch vbmeta**.
+- Stock M55 `vbmeta.img` and `vbmeta_system.img` were recovered and audited (AVB flags=0). They are **not compatible by assumption** with modified boot images; this port does **not** flash them automatically.
 - Device reportedly unlocked; current bootloader/AVB state must be checked independently.
 - DSU support is **not implemented** here. DSU cannot test a custom boot image and is not equivalent to full ROM installation.
+
+## Stage-0 assembly (manual GitHub Actions)
+
+The [M55 UN1CA prototype build](https://github.com/vildangil/UN1CA-m55xq/actions/workflows/m55-build.yml) downloads verified stock `vendor`, `odm` and `vendor_dlkm` from successful [stock inspection run #40908265068](https://github.com/vildangil/UN1CA-m55xq/actions/runs/40908265068), checks size, SHA-256, EROFS magic, fstab, AVB metadata, board API and super group capacity, then emits a small **NON-FLASHABLE** staging manifest and a list of still-missing hardware configuration fields.
+
+It does **not** build One UI 8 system/product or combine patched boot images with the stock AVB chain. The four user-supplied modified images are not stored in this repo and are not part of the staging artifact. A full custom ROM build would require verified target-specific SEC feature values, S22 donor integration, original file contexts/ownership metadata for any regenerated partitions, kernel/module ABI and VINTF compatibility, and a safely configured AVB chain. Never flash the stage-0 output.
 
 ## Read-only checks
 ```bash
@@ -22,10 +28,10 @@ bash scripts/m55xq_preflight.sh --images
 
 ## Required One UI 7 stock metadata (do not guess)
 - `M55_ONEUI7_FIRMWARE`: exact FUS model/CSC/serial source in `SM-M556B/CSC/ID` format. Keep ID in local environment; **do not commit personal identifiers**.
-- `M55_BOARD_API_LEVEL`: `ro.board.api_level` of the selected One UI 7 base.
-- `M55_SUPER_PARTITION_SIZE` and `M55_QTI_DYNAMIC_PARTITIONS_SIZE`: exact physical super / logical group sizes from `lpdump`.
+- `M55_BOARD_API_LEVEL`: now defaults to measured `31` (`ro.board.api_level` from stock M556BXXS4BYH2).
+- `M55_SUPER_PARTITION_SIZE` defaults to measured `13631488000`; `M55_QTI_DYNAMIC_PARTITIONS_SIZE` defaults to measured `13627293696`.
 - `M55_DEVICE_CONFIG`: local source-able file with verified M55 SEC feature values from extracted One UI 7 firmware. Never borrow A73/M52 features without verification.
-- `TARGET_PRODUCT_SHIPPING_API_LEVEL=34` is a provisional M55 launch-level assumption. Check against `ro.product.first_api_level` before a full build.
+- `TARGET_PRODUCT_SHIPPING_API_LEVEL=34` is now confirmed by stock vendor `ro.product.first_api_level=34`.
 
 Preliminary collection on the device, read only:
 ```sh
