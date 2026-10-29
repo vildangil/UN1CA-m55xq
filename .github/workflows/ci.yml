@@ -14,6 +14,14 @@ on:
         options:
           - preflight
           - build
+      kernel_source:
+        type: choice
+        description: "boot chain for build: stock M55 + user's Custom Binary patch, or previously tested image quartet"
+        required: true
+        default: stock_custom
+        options:
+          - stock_custom
+          - owner_tested
 
 permissions:
   contents: read
@@ -42,7 +50,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 -m py_compile scripts/m55_prepare_odin_cache.py \
-            scripts/m55_verify_kernel_inputs.py scripts/m55_build_readiness.py \
+            scripts/m55_verify_kernel_inputs.py scripts/m55_prepare_stock_kernel.py \
+            scripts/m55/samsung_custom_binary.py scripts/m55_build_readiness.py \
             scripts/m55_build_stage.py scripts/m55_extract_dynamic.py \
             scripts/m55_extract_donor.py scripts/m55_mix_donor.py
           bash -n target/m55xq/config.sh platform/sm7450/config.sh \
@@ -120,16 +129,12 @@ jobs:
         with:
           retain: 'compiler_cmake'
 
-      - name: Require verified M55 hardware feature config and patched kernel inputs
+      - name: Require verified M55 hardware feature config
         shell: bash
         run: |
           set -euo pipefail
           if [ -z "$M55_DEVICE_CONFIG_B64" ]; then
-            echo "::error::M55_DEVICE_CONFIG_B64 secret missing: original UN1CA expects 47 M55 SEC feature values. Do not substitute S22 settings."
-            exit 1
-          fi
-          if [ -z "$M55_KERNEL_ARCHIVE_URL" ]; then
-            echo "::error::M55_KERNEL_ARCHIVE_URL secret missing: requires original tested M55 boot.img/vendor_boot.img/dtbo.img/vendor_dlkm.img."
+            echo "::error::M55_DEVICE_CONFIG_B64 is not yet configured; required for the original UN1CA build's unverified M55 SEC hardware flags. The stock-custom boot chain itself needs no secret."
             exit 1
           fi
           echo "$M55_DEVICE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/m55-device-config.sh"
@@ -175,18 +180,6 @@ jobs:
 
       - name: Build dependencies
         run: ./scripts/build_dependencies.sh
-
-      - name: Import owner-tested M55 patched boot chain
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p "$M55_KERNEL_DIR"
-          curl -fL --retry 3 --max-time 1800 "$M55_KERNEL_ARCHIVE_URL" \
-            -o "$RUNNER_TEMP/m55-kernel.zip"
-          unzip -j "$RUNNER_TEMP/m55-kernel.zip" \
-            boot.img vendor_boot.img dtbo.img vendor_dlkm.img -d "$M55_KERNEL_DIR"
-          python3 scripts/m55_verify_kernel_inputs.py "$M55_KERNEL_DIR"
-          rm -f "$RUNNER_TEMP/m55-kernel.zip"
 
       - name: Prepare pinned native Samsung Bifrost client
         shell: bash
@@ -249,11 +242,46 @@ jobs:
       - name: Extract stock firmwares — original UN1CA M55 target extractor
         shell: bash
         timeout-minutes: 70
+        env:
+          M55_STOCK_CUSTOM_MODE: ${{ inputs.kernel_source == 'stock_custom' && '1' || '0' }}
+          M55_STOCK_DLKM_OUTPUT: ${{ runner.temp }}/m55-stock-original-vendor_dlkm.img
         run: |
           set -euo pipefail
           ./scripts/extract_fw.sh --ignore-source
           test -f "$FW_DIR/SM-M556B_INS/.extracted"
           df -h /
+
+      - name: Convert exact M55 stock boot chain with owner's tested Samsung Custom Binary tool
+        if: ${{ inputs.kernel_source == 'stock_custom' }}
+        shell: bash
+        timeout-minutes: 10
+        run: |
+          set -euo pipefail
+          python3 scripts/m55_prepare_stock_kernel.py \
+            --kernel-dir "$FW_DIR/SM-M556B_INS/kernel" \
+            --vendor-dlkm "$RUNNER_TEMP/m55-stock-original-vendor_dlkm.img" \
+            --output-dir "$M55_KERNEL_DIR"
+          test -s "$M55_KERNEL_DIR/stock_custom_binary_report.json"
+          echo "M55_STOCK_CUSTOM_BINARY_SUCCESS"
+
+      - name: Import owner-tested patched boot chain (optional alternative)
+        if: ${{ inputs.kernel_source == 'owner_tested' }}
+        shell: bash
+        env:
+          M55_KERNEL_ARCHIVE_URL: ${{ secrets.M55_KERNEL_ARCHIVE_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "$M55_KERNEL_ARCHIVE_URL" ]; then
+            echo "::error::owner_tested mode requires M55_KERNEL_ARCHIVE_URL; choose stock_custom to build from Samsung stock without an image secret."
+            exit 1
+          fi
+          mkdir -p "$M55_KERNEL_DIR"
+          curl -fL --retry 3 --max-time 1800 "$M55_KERNEL_ARCHIVE_URL" \
+            -o "$RUNNER_TEMP/m55-kernel.zip"
+          unzip -j "$RUNNER_TEMP/m55-kernel.zip" \
+            boot.img vendor_boot.img dtbo.img vendor_dlkm.img -d "$M55_KERNEL_DIR"
+          python3 scripts/m55_verify_kernel_inputs.py "$M55_KERNEL_DIR"
+          rm -f "$RUNNER_TEMP/m55-kernel.zip"
 
       - name: Restore JDK 17 for UN1CA APK/JAR building
         uses: actions/setup-java@v6
@@ -291,6 +319,8 @@ jobs:
             echo "- Pinned source SM-S901E/TUR/S901EXXSEGZH4 (One UI 8)."
             echo "- Pinned target SM-M556B/INS/M556BXXS4BYH2 (One UI 7)."
             echo "- CACHE is a local identifier only; no fake IMEI or serial is sent to Samsung."
-            echo "- Requires independently verified M55 SEC feature config and SHA256-matched patched kernel quartet."
+            echo "- stock_custom mode uses exact Samsung M55 stock boot/vendor_boot/dtbo with the owner's original SignerVer02 algorithm, and unchanged stock vendor_dlkm."
+            echo "- owner_tested alternative validates the previously supplied custom kernel quartet by SHA-256."
+            echo "- M55 SEC feature config remains required until device-specific values are verified."
             echo "- The output is NOT marked bootable or flashable; AVB/VINTF/kernel ABI are not device-tested."
           } >> "$GITHUB_STEP_SUMMARY"
