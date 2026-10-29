@@ -1,0 +1,92 @@
+name: M55 firmware verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Firmware check mode
+        type: choice
+        required: true
+        default: metadata
+        options:
+          - metadata
+          - download-donor
+          - verify-m55-oneui7
+      m55_csc:
+        description: M55 CSC (3 characters, default INS)
+        type: string
+        required: true
+        default: INS
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firmware-m55-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  firmware-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      SRC_DIR: ${{ github.workspace }}
+      OUT_DIR: ${{ github.workspace }}/out
+      ODIN_DIR: ${{ github.workspace }}/out/odin
+      FW_DIR: ${{ github.workspace }}/out/fw
+      TOOLS_DIR: ${{ github.workspace }}/out/tools
+      M55_CSC: ${{ inputs.m55_csc }}
+      M55_ONEUI7_URL: ${{ secrets.M55_ONEUI7_URL }}
+      M55_ONEUI7_SHA256: ${{ secrets.M55_ONEUI7_SHA256 }}
+    steps:
+      - name: Check out UN1CA M55 port
+        uses: actions/checkout@v4
+
+      - name: Check Samsung FOTA firmware metadata
+        uses: nick-fields/retry@v4
+        with:
+          timeout_minutes: 5
+          max_attempts: 3
+          retry_on: error
+          command: python3 scripts/m55_firmware_probe.py
+
+      - name: Install Samloader for donor download
+        if: ${{ inputs.mode == 'download-donor' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git submodule update --init external/samloader
+          python3 -m venv "$TOOLS_DIR/venv"
+          "$TOOLS_DIR/venv/bin/pip" install --disable-pip-version-check ./external/samloader
+          source unica/configs/qssi.sh
+          printf 'SOURCE_FIRMWARE=%s\n' "$SOURCE_FIRMWARE" >> "$GITHUB_ENV"
+
+      - name: Download stock firmware (UN1CA S22 donor only)
+        if: ${{ inputs.mode == 'download-donor' }}
+        uses: nick-fields/retry@v4
+        with:
+          timeout_minutes: 60
+          max_attempts: 3
+          retry_on: error
+          command: ./scripts/download_fw.sh --ignore-target
+
+      - name: Verify pinned Galaxy M55 One UI 7 archive
+        if: ${{ inputs.mode == 'verify-m55-oneui7' }}
+        uses: nick-fields/retry@v4
+        with:
+          timeout_minutes: 60
+          max_attempts: 3
+          retry_on: error
+          command: bash scripts/m55_verify_oneui7.sh
+
+      - name: Explain validation scope
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '### Scope'
+            echo '- Firmware tests never flash the device.'
+            echo '- Donor download uses FUS latest, which may differ from the pinned UN1CA 8 source.'
+            echo '- M55 One UI 7 must be supplied as a pinned archived ZIP; FUS latest is not a substitute.'
+            echo '- Full ROM compilation and DSU boot are not performed in this workflow.'
+          } >> "$GITHUB_STEP_SUMMARY"
