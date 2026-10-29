@@ -5,26 +5,38 @@
 This fork intentionally has **one device target only**: `target/m55xq`. Upstream targets remain available at https://github.com/salvogiangri/UN1CA/tree/sixteen/target.
 
 ## Current status
-- Port skeleton and boot-chain overlay added; **not boot tested**. A manual-only stock staging build now exists at `.github/workflows/m55-build.yml`; it validates real EROFS input images but is **not a complete ROM**.
+- Port skeleton and boot-chain overlay added; **not boot tested**. The original upstream UN1CA build pipeline now lives in manual-only `.github/workflows/ci.yml`, with M55-specific safeguards.
 - Existing local images: `boot.img`, `dtbo.img`, `vendor_boot.img`, `vendor_dlkm.img`.
 - The AnyKernel3 archive contains an Image that differs from the supplied boot image; user confirmed the boot image simply has an older kernel build. **No auto replacement** is performed.
 - Stock M55 `vbmeta.img` and `vbmeta_system.img` were recovered and audited (AVB flags=0). They are **not compatible by assumption** with modified boot images; this port does **not** flash them automatically.
 - Device reportedly unlocked; current bootloader/AVB state must be checked independently.
 - DSU support is **not implemented** here. DSU cannot test a custom boot image and is not equivalent to full ROM installation.
 
-## Stage-0 assembly (manual GitHub Actions)
+## Original UN1CA CI (manual for M55)
 
-The [M55 UN1CA prototype build](https://github.com/vildangil/UN1CA-m55xq/actions/workflows/m55-build.yml) downloads verified stock `vendor`, `odm` and `vendor_dlkm` from successful [stock inspection run #40908265068](https://github.com/vildangil/UN1CA-m55xq/actions/runs/40908265068), checks size, SHA-256, EROFS magic, fstab, AVB metadata, board API and super group capacity, then emits a small **NON-FLASHABLE** staging manifest and a list of still-missing hardware configuration fields.
+The active build workflow is [UN1CA CI (Galaxy M55)](https://github.com/vildangil/UN1CA-m55xq/actions/workflows/ci.yml), based on upstream `salvogiangri/UN1CA` branch `sixteen` original `.github/workflows/ci.yml`.
 
-It does **not** build One UI 8 system/product or combine patched boot images with the stock AVB chain. The four user-supplied modified images are not stored in this repo and are not part of the staging artifact. A full custom ROM build would require verified target-specific SEC feature values, S22 donor integration, original file contexts/ownership metadata for any regenerated partitions, kernel/module ABI and VINTF compatibility, and a safely configured AVB chain. Never flash the stage-0 output.
+It preserves the upstream sequence:
 
-## Donor One UI 8 integration experiment (manual)
+1. `Shellcheck` and Python preflight;
+2. generate the target matrix (restricted to `m55xq`);
+3. free GitHub runner disk, install build dependencies and JDK 17;
+4. generate upstream `buildenv.sh m55xq` configuration;
+5. run upstream `scripts/build_dependencies.sh`;
+6. obtain exact S22 One UI 8 donor and historical M55 One UI 7 from Samsung via native Bifrost without a target IMEI, preserving upstream `out/odin/SM-..._CSC` cache layout;
+7. unpack using upstream `scripts/extract_fw.sh --ignore-target` (S22) and `--ignore-source` (M55);
+8. verify the previously provided custom kernel quartet, run upstream `scripts/make_rom.sh` (target-files only; not flashable).
 
-[M55 UN1CA 8 donor integration experiment](https://github.com/vildangil/UN1CA-m55xq/actions/workflows/m55-donor-mix.yml) is a separate *manual* workflow. It uses the original Bifrost SmartDownload to request the **exact** S22 One UI 8 firmware `SM-S901E/TUR/S901EXXSEGZH4`, streams `system`, `product` and `system_ext` out of its dynamic `super`, and checks them against the already verified M55 `vendor`, `odm` and `vendor_dlkm` from [stock extraction #40908265068](https://github.com/vildangil/UN1CA-m55xq/actions/runs/40908265068).
+**Manual-only**: `workflow_dispatch` offers `preflight` (default; runs shellcheck, generates matrix and reports missing config options) and `build` (full upstream-style compilation). No `push`, PR or scheduled trigger is enabled. The full build is strictly gated on these GitHub Actions secrets:
 
-It stops if the donor version does not match, any partition is not EROFS, the vendor hashes have changed, or the combined images cannot fit `qti_dynamic_partitions` (13,627,293,696 bytes). The artifact contains a partition layout, checksums, and an optional `lpmake` recipe. **It does not create a flashable ROM, modify AVB, or replace the user's patched boot-chain.** Successful staging does *not* demonstrate compatibility between Samsung Android 16 framework and the Galaxy M55 Android 15 vendor. The input stock artifact expires on GitHub's retention schedule.
+- `M55_DEVICE_CONFIG_B64`: Base64 of a source-able shell config containing verified M55-specific `TARGET_*` SEC feature settings. The previous preflight found 47 missing hardware variables, and we must not fill them with unrelated S22 values.
+- `M55_KERNEL_ARCHIVE_URL`: downloadable ZIP containing *exactly* the owner-supplied `boot.img`, `dtbo.img`, `vendor_boot.img`, `vendor_dlkm.img`; all four are checksum-verified before the build.
 
-There are still 47 unspecified device-specific feature settings in UN1CA's target configuration. We need measured settings (not borrowed from S22) before safely running the normal `unica make_rom` path. A first experiment may identify additional VINTF/ABI work, but it must not be flashed or presented as a DSU-compatible image.
+The `SM-M556B/INS/CACHE` token is a **local-only sentinel** allowing the upstream UN1CA source/extractor to reference a pinned M55 archive from Bifrost without leaking or inventing an IMEI. It is never passed to Samloader; the real exact firmware string is stored in `.downloaded` by `scripts/m55_prepare_odin_cache.py`.
+
+The full `build` mode will fail early if hardware secrets are not configured. Even after compilation, a target-files ZIP is **not boot-tested or flashable by assumption**. Kernel/AVB chain, SELinux and VINTF compatibility require separate device validation. The original upstream `blobs.yml` (prebuilt update scheduler for other devices) is not applicable to M55 and has not been imported.
+
+Older successful Stage 0 manifests are still available through [historical run #40922752695](https://github.com/vildangil/UN1CA-m55xq/actions/runs/40922752695), though the experimental workflows themselves have been consolidated into `ci.yml`.
 
 ## Read-only checks
 ```bash
@@ -35,7 +47,7 @@ bash scripts/m55xq_preflight.sh --images
 ```
 
 ## Required One UI 7 stock metadata (do not guess)
-- `M55_ONEUI7_FIRMWARE`: exact FUS model/CSC/serial source in `SM-M556B/CSC/ID` format. Keep ID in local environment; **do not commit personal identifiers**.
+- `M55_ONEUI7_FIRMWARE`: the original build uses the local-only `SM-M556B/INS/CACHE` sentinel with native Bifrost and verified historical build `M556BXXS4BYH2`. No personal identifier is required or stored.
 - `M55_BOARD_API_LEVEL`: now defaults to measured `31` (`ro.board.api_level` from stock M556BXXS4BYH2).
 - `M55_SUPER_PARTITION_SIZE` defaults to measured `13631488000`; `M55_QTI_DYNAMIC_PARTITIONS_SIZE` defaults to measured `13627293696`.
 - `M55_DEVICE_CONFIG`: local source-able file with verified M55 SEC feature values from extracted One UI 7 firmware. Never borrow A73/M52 features without verification.
