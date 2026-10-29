@@ -148,6 +148,20 @@ EXTRACT_OS_PARTITIONS()
         fi
 
         EVAL "sudo umount \"$TMP_DIR\"" || exit 1
+        # Retain an exact stock vendor_dlkm EROFS image before upstream
+        # extraction deletes the raw image. This is used ONLY when explicitly
+        # staging the owner's Samsung Custom Binary-patched stock boot images.
+        if [[ "${M55_STOCK_CUSTOM_MODE:-0}" == "1" ]] && \
+                [[ "$MODEL" == "SM-M556B" ]] && \
+                [[ "$PARTITION" == "vendor_dlkm" ]]; then
+            if [[ -z "${M55_STOCK_DLKM_OUTPUT:-}" ]]; then
+                LOGE "M55_STOCK_DLKM_OUTPUT is required for stock-custom mode"
+                exit 1
+            fi
+            mkdir -p "$(dirname "$M55_STOCK_DLKM_OUTPUT")"
+            cp -f "$FW_DIR/${MODEL}_${CSC}/$f" "$M55_STOCK_DLKM_OUTPUT" || exit 1
+            LOG "- Preserved original M55 stock vendor_dlkm.img for custom-binary staging"
+        fi
         rm -f "$FW_DIR/${MODEL}_${CSC}/$f"
     done
 
