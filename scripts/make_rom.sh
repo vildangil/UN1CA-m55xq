@@ -100,6 +100,16 @@ PRINT_USAGE()
 
 PREPARE_SCRIPT "$@"
 
+# Fail closed if a user runs the real M55 build with the temporary
+# dependencies-only feature bootstrap. The original UN1CA build must see
+# fully validated target options derived from stock, not guesses.
+if [[ "${TARGET_CODENAME:-}" == "m55xq" ]] && \
+        [[ -f "${OUT_DIR:-}/config.sh" ]] && \
+        grep -q "__M55_UNVERIFIED__" "$OUT_DIR/config.sh"; then
+    LOGE "M55 stock SEC hardware features are not yet verified; refusing ROM build with bootstrap configuration"
+    exit 1
+fi
+
 if $FORCE; then
     BUILD_ROM=true
 else
