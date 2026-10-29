@@ -1,12 +1,6 @@
 name: M55 firmware verification
 
 on:
-  push:
-    branches: [sixteen]
-    paths:
-      - '.github/workflows/firmware-check.yml'
-      - 'scripts/m55_firmware_probe.py'
-      - 'scripts/m55_verify_oneui7.sh'
   workflow_dispatch:
     inputs:
       mode:
