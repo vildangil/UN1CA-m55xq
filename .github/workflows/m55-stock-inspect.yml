@@ -123,8 +123,8 @@ jobs:
             image="$RUNNER_TEMP/m55-raw-partitions/$part.img"
             dest="$RUNNER_TEMP/m55-unpacked/$part"
             mkdir -p "$dest"
-            fs_magic="$(dd if="$image" bs=1 skip=1024 count=4 status=none | od -An -tx1 | tr -d ' \\n')"
-            ext4_magic="$(dd if="$image" bs=1 skip=1080 count=2 status=none | od -An -tx1 | tr -d ' \\n')"
+            fs_magic="$(dd if="$image" bs=1 skip=1024 count=4 status=none | od -An -tx1 | tr -d '[:space:]')"
+            ext4_magic="$(dd if="$image" bs=1 skip=1080 count=2 status=none | od -An -tx1 | tr -d '[:space:]')"
             echo "M55_FILESYSTEM $part at1024=$fs_magic ext4_magic=$ext4_magic"
             if [ "$fs_magic" = e2e1f5e0 ]; then
               fsck.erofs --extract="$dest" "$image"
