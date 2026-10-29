@@ -2,12 +2,6 @@ name: M55 official Bifrost source probe
 
 on:
   workflow_dispatch:
-  push:
-    branches: [sixteen]
-    paths:
-      - .github/workflows/m55-bifrost-native.yml
-      - scripts/bifrost/BifrostProbe.kt
-
 permissions:
   contents: read
 
