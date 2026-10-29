@@ -2,7 +2,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 # [
-source "$SRC_DIR/scripts/utils/build_utils.sh" || return 1
+# Firmware downloads need only log/utility helpers, not the full ROM toolchain.
+# Keep the original dependency checks for normal UN1CA builds.
+if [[ "${UNICA_FIRMWARE_ONLY:-0}" == "1" ]]; then
+    source "$SRC_DIR/scripts/utils/common_utils.sh" || return 1
+else
+    source "$SRC_DIR/scripts/utils/build_utils.sh" || return 1
+fi
 # ]
 
 # COMPARE_SEC_BUILD_VERSION <string1> <string2>
