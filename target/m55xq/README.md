@@ -25,8 +25,9 @@ It preserves the upstream sequence:
 5. run upstream `scripts/build_dependencies.sh`;
 6. obtain exact S22 One UI 8 donor and historical M55 One UI 7 from Samsung via native Bifrost without a target IMEI, preserving upstream `out/odin/SM-..._CSC` cache layout;
 7. unpack using upstream `scripts/extract_fw.sh --ignore-target` (S22) and `--ignore-source` (M55);
-8. by default, patch the three **stock M55** boot-chain images with the user's original `samsung_custom_binary.py`, preserving the original stock files and original `vendor_dlkm.img`; optionally use the pre-tested patched quartet;
-9. run upstream `scripts/make_rom.sh` (target-files only; not flashable).
+8. derive M55 SEC settings from verified unpacked Samsung stock, regenerate the final build config and refuse unknown/mismatched settings;
+9. by default, patch the three **stock M55** boot-chain images with the user's original `samsung_custom_binary.py`, preserving the original stock files and original `vendor_dlkm.img`; optionally use the pre-tested patched quartet;
+10. run upstream `scripts/make_rom.sh` (target-files only; not flashable).
 
 **Manual-only**: `workflow_dispatch` has these modes:
 
@@ -34,7 +35,7 @@ It preserves the upstream sequence:
 - `stock_custom_images`: **requires NO secrets**. Downloads only the small M55 image artifact from verified stock run `40908265068`, uses the exact, unmodified user-supplied `samsung_custom_binary.py` on `boot.img`, `vendor_boot.img` and `dtbo.img`, checks both original and output SHA-256 against known-good values, and uploads patched copies with a `DO_NOT_FLASH` notice.
 - `build`: original upstream UN1CA full build flow. Default `kernel_source=stock_custom` processes the downloaded historical M55 stock kernel images with the user's patcher and stages **unchanged stock `vendor_dlkm`** for the target-files generator. Alternatively `kernel_source=owner_tested` imports and SHA-verifies the four previously provided custom images.
 
-For `build` mode, `M55_DEVICE_CONFIG_B64` is **still required**: 47 M55-specific SEC feature variables remain unverified. We will not silently substitute S22 feature flags. **`M55_KERNEL_ARCHIVE_URL` is no longer required for the default stock-custom mode**; it is only needed if the operator explicitly selects `owner_tested`.
+For `build` mode, **`M55_DEVICE_CONFIG_B64` is no longer required**. The original UN1CA build is bootstrapped *only for host tools/firmware extraction*, then `scripts/m55_derive_features.py` reads the **actual unpacked M556BXXS4BYH2 stock filesystem**, checks the vendor identity/API/PDA, and maps exact `SEC_FLOATING_FEATURE_*` tags or unique device policy filenames to `TARGET_*` variables. It produces `m55-derived-features.sh` and `m55-feature-evidence.json`, then regenerates the **real** UN1CA config. Any required setting without unambiguous stock evidence stops the ROM build; the report is uploaded even on failure. **`M55_KERNEL_ARCHIVE_URL` is needed only for `kernel_source=owner_tested`** and is not needed in the default `stock_custom` mode.
 
 The user's original custom binary patcher is stored **byte-for-byte** in `scripts/m55/samsung_custom_binary.py`, Git blob SHA-1 `e66c804b184ae17b8e03aa4c9ff3cf0a012ea4ae`. The patch was tested on stock `M556BXXS4BYH2` M55 images on 2026-10-29, generating these SHA-256 digests:
 
@@ -48,7 +49,7 @@ It removes `SignerVer02`, preserves the embedded vbmeta blob for boot/vendor_boo
 
 The `SM-M556B/INS/CACHE` token is a **local-only sentinel** allowing the upstream UN1CA source/extractor to reference a pinned M55 archive from Bifrost without leaking or inventing an IMEI. It is never passed to Samloader; the real exact firmware string is stored in `.downloaded` by `scripts/m55_prepare_odin_cache.py`.
 
-The full `build` mode will fail early if the verified hardware-feature configuration is not configured. Even after compilation, a target-files ZIP is **not boot-tested or flashable by assumption**. Kernel/AVB chain, SELinux and VINTF compatibility require separate device validation. The original upstream `blobs.yml` (prebuilt update scheduler for other devices) is not applicable to M55 and has not been imported.
+The full `build` mode will fail after M55 stock extraction if required hardware-feature values remain unverified; inspect `M55-OneUI7-real-hardware-feature-evidence` artifact. Even after compilation, a target-files ZIP is **not boot-tested or flashable by assumption**. Kernel/AVB chain, SELinux and VINTF compatibility require separate device validation. The original upstream `blobs.yml` (prebuilt update scheduler for other devices) is not applicable to M55 and has not been imported.
 
 Older successful Stage 0 manifests are still available through [historical run #40922752695](https://github.com/vildangil/UN1CA-m55xq/actions/runs/40922752695), though the experimental workflows themselves have been consolidated into `ci.yml`.
 
