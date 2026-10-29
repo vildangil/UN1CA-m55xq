@@ -48,6 +48,7 @@ jobs:
           bash -n target/m55xq/config.sh platform/sm7450/config.sh \
             scripts/m55xq_preflight.sh
           bash scripts/m55xq_preflight.sh
+          python3 scripts/tests/test_m55_odin_cache.py
 
   generate-matrix:
     name: Generate matrix
