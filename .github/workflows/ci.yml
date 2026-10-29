@@ -65,6 +65,7 @@ jobs:
             scripts/m55xq_preflight.sh
           bash scripts/m55xq_preflight.sh
           python3 scripts/tests/test_m55_odin_cache.py
+          python3 scripts/tests/test_m55_custom_binary.py
 
   generate-matrix:
     name: Generate matrix
