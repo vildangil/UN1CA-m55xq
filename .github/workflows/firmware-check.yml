@@ -60,6 +60,10 @@ jobs:
         run: |
           bash -n scripts/download_fw.sh scripts/m55_verify_oneui7.sh
 
+      - name: Test forbidden URL and valid archive locally
+        shell: bash
+        run: bash scripts/tests/test_m55_verify_oneui7.sh
+
       - name: Check Samsung FOTA firmware metadata
         uses: nick-fields/retry@v4
         with:
