@@ -11,5 +11,6 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/m55xq_preflight.sh
-          python3 -m py_compile scripts/m55_build_stage.py scripts/m55_build_readiness.py
+          python3 -m py_compile scripts/m55_build_stage.py scripts/m55_build_readiness.py \
+            scripts/m55_extract_dynamic.py scripts/m55_extract_donor.py scripts/m55_mix_donor.py
           bash -n target/m55xq/config.sh platform/sm7450/config.sh
