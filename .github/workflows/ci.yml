@@ -1,16 +1,295 @@
-name: M55 port preflight
+# Based on salvogiangri/UN1CA .github/workflows/ci.yml (sixteen).
+# Deliberate M55 adaptations: one device, manual-only, pinned Samsung Bifrost
+# historical downloads, required original patched kernel and audited SEC config.
+name: UN1CA CI (Galaxy M55)
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        type: choice
+        description: "CI mode — original UN1CA build needs device feature/kernel secrets"
+        required: true
+        default: preflight
+        options:
+          - preflight
+          - build
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  preflight:
+  shellcheck:
+    name: Shellcheck
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - name: Validate single target and shell syntax (no firmware download)
+      - name: Checkout repo
+        uses: actions/checkout@v7
+
+      - name: Run shellcheck
+        run: |
+          CODE=0
+          while IFS= read -r f; do
+            shellcheck -e SC1090,SC1091 -s bash "$f" || CODE=1
+          done < <(find platform scripts target unica -name "*.sh" -not -name "*ssi.sh" -not -name "config.sh" -not -name "sff.sh")
+          exit $CODE
+
+      - name: Verify M55-specific Python and shell configuration
         run: |
           set -euo pipefail
+          python3 -m py_compile scripts/m55_prepare_odin_cache.py \
+            scripts/m55_verify_kernel_inputs.py scripts/m55_build_readiness.py \
+            scripts/m55_build_stage.py scripts/m55_extract_dynamic.py \
+            scripts/m55_extract_donor.py scripts/m55_mix_donor.py
+          bash -n target/m55xq/config.sh platform/sm7450/config.sh \
+            scripts/m55xq_preflight.sh
           bash scripts/m55xq_preflight.sh
-          python3 -m py_compile scripts/m55_build_stage.py scripts/m55_build_readiness.py \
-            scripts/m55_extract_dynamic.py scripts/m55_extract_donor.py scripts/m55_mix_donor.py
-          bash -n target/m55xq/config.sh platform/sm7450/config.sh
+
+  generate-matrix:
+    name: Generate matrix
+    needs: shellcheck
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.generate-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+
+      - name: Generate CI matrix
+        id: generate-matrix
+        run: |
+          matrix="$(find target -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
+            | sort | jq -R -s -c 'split("\n") | map(select(length > 0))')"
+          echo "$matrix"
+          test "$matrix" = '["m55xq"]'
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+      - name: Report unresolved original UN1CA device options
+        run: |
+          python3 scripts/m55_build_readiness.py . out/m55-ci-readiness
+          cat out/m55-ci-readiness/m55_build_readiness.json
+
+      - name: Save device config readiness manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: M55-original-UN1CA-config-readiness
+          path: out/m55-ci-readiness/m55_build_readiness.json
+          retention-days: 14
+
+  build:
+    name: Build
+    if: ${{ inputs.mode == 'build' }}
+    needs: [shellcheck, generate-matrix]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        target: ${{ fromJSON(needs.generate-matrix.outputs.matrix) }}
+
+    env:
+      UNICA_PINNED_FIRMWARE_ONLY: '1'
+      M55_ONEUI7_FIRMWARE: SM-M556B/INS/CACHE
+      M55_DEVICE_CONFIG_B64: ${{ secrets.M55_DEVICE_CONFIG_B64 }}
+      M55_KERNEL_ARCHIVE_URL: ${{ secrets.M55_KERNEL_ARCHIVE_URL }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+        with:
+          submodules: 'recursive'
+
+      - name: Free disk space (1/3)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
+          sudo docker builder prune -a
+
+      - name: Free disk space (2/3)
+        uses: jlumbroso/free-disk-space@main
+        with:
+          preinstalled-runtimes: true
+
+      - name: Free disk space (3/3)
+        uses: rokibhasansagar/slimhub_actions@main
+        with:
+          retain: 'compiler_cmake'
+
+      - name: Require verified M55 hardware feature config and patched kernel inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$M55_DEVICE_CONFIG_B64" ]; then
+            echo "::error::M55_DEVICE_CONFIG_B64 secret missing: original UN1CA expects 47 M55 SEC feature values. Do not substitute S22 settings."
+            exit 1
+          fi
+          if [ -z "$M55_KERNEL_ARCHIVE_URL" ]; then
+            echo "::error::M55_KERNEL_ARCHIVE_URL secret missing: requires original tested M55 boot.img/vendor_boot.img/dtbo.img/vendor_dlkm.img."
+            exit 1
+          fi
+          echo "$M55_DEVICE_CONFIG_B64" | base64 --decode > "$RUNNER_TEMP/m55-device-config.sh"
+          bash -n "$RUNNER_TEMP/m55-device-config.sh"
+          echo "M55_DEVICE_CONFIG=$RUNNER_TEMP/m55-device-config.sh" >> "$GITHUB_ENV"
+          echo "M55_KERNEL_DIR=$RUNNER_TEMP/m55-kernel" >> "$GITHUB_ENV"
+
+      - name: Set up build environment
+        run: |
+          sudo apt update
+          DEBIAN_FRONTEND=noninteractive sudo apt install -yq \
+            attr ccache clang ffmpeg libbrotli-dev libbz2-dev \
+            libgtest-dev libprotobuf-dev libunwind-dev libpcre2-dev \
+            libzstd-dev linux-modules-extra-$(uname -r) lld protobuf-compiler webp
+          sudo modprobe erofs f2fs
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+          cache: 'gradle'
+
+      - name: Generate build config
+        shell: bash
+        run: |
+          source ./buildenv.sh ${{ matrix.target }}
+          {
+            echo "DEBUG=$DEBUG"
+            echo "SRC_DIR=$SRC_DIR"
+            echo "OUT_DIR=$OUT_DIR"
+            echo "ODIN_DIR=$ODIN_DIR"
+            echo "FW_DIR=$FW_DIR"
+            echo "TOOLS_DIR=$TOOLS_DIR"
+            echo "APKTOOL_DIR=$APKTOOL_DIR"
+            echo "WORK_DIR=$WORK_DIR"
+            echo "TMP_DIR=$TMP_DIR"
+          } >> "$GITHUB_ENV"
+          sed -e "/Automatically/d" -e "s/\"//g" "$OUT_DIR/config.sh" >> "$GITHUB_ENV"
+          echo "$TOOLS_DIR/bin" >> "$GITHUB_PATH"
+
+      - name: Build dependencies
+        run: ./scripts/build_dependencies.sh
+
+      - name: Import owner-tested M55 patched boot chain
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$M55_KERNEL_DIR"
+          curl -fL --retry 3 --max-time 1800 "$M55_KERNEL_ARCHIVE_URL" \
+            -o "$RUNNER_TEMP/m55-kernel.zip"
+          unzip -j "$RUNNER_TEMP/m55-kernel.zip" \
+            boot.img vendor_boot.img dtbo.img vendor_dlkm.img -d "$M55_KERNEL_DIR"
+          python3 scripts/m55_verify_kernel_inputs.py "$M55_KERNEL_DIR"
+          rm -f "$RUNNER_TEMP/m55-kernel.zip"
+
+      - name: Prepare pinned native Samsung Bifrost client
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/zacharee/Bifrost.git bifrost-src
+          cp scripts/bifrost/BifrostFetch.kt bifrost-src/desktop/src/jvmMain/kotlin/BifrostFetch.kt
+          sed -i 's/mainClass = "MainKt"/mainClass = "BifrostFetchKt"/g' bifrost-src/desktop/build.gradle.kts
+          sed -i 's/^org.gradle.jvmargs=.*/org.gradle.jvmargs=-Xmx3g/' bifrost-src/gradle.properties
+          sed -i 's/^org.gradle.parallel=true/org.gradle.parallel=false/' bifrost-src/gradle.properties
+          chmod +x bifrost-src/gradlew
+
+      - name: Set up JDK 21 for Bifrost
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      # Replaces only upstream's firmware acquisition, not original UN1CA
+      # extraction, module patches, apktool or ROM assembly.
+      - name: Download stock firmwares — exact S22 One UI 8 donor
+        shell: bash
+        timeout-minutes: 110
+        env:
+          FUS_MODEL: SM-S901E
+          FUS_REGION: TUR
+          FUS_PDA: S901EXXSEGZH4
+          FUS_OUTPUT_ZIP: ${{ runner.temp }}/m55-source-S22.zip
+        run: |
+          set -euo pipefail
+          (cd bifrost-src && ./gradlew :desktop:run --no-daemon --console=plain)
+          python3 scripts/m55_prepare_odin_cache.py donor "$FUS_OUTPUT_ZIP" "$ODIN_DIR"
+          rm -f "$FUS_OUTPUT_ZIP"
+          df -h /
+
+      - name: Extract stock firmwares — original UN1CA S22 donor extractor
+        shell: bash
+        timeout-minutes: 70
+        run: |
+          set -euo pipefail
+          ./scripts/extract_fw.sh --ignore-target
+          test -f "$FW_DIR/SM-S901E_TUR/.extracted"
+          df -h /
+
+      - name: Download stock firmwares — exact historical M55 One UI 7 target
+        shell: bash
+        timeout-minutes: 110
+        env:
+          FUS_MODEL: SM-M556B
+          FUS_REGION: INS
+          FUS_PDA: M556BXXS4BYH2
+          FUS_OUTPUT_ZIP: ${{ runner.temp }}/m55-target-BYH2.zip
+        run: |
+          set -euo pipefail
+          (cd bifrost-src && ./gradlew :desktop:run --no-daemon --console=plain)
+          python3 scripts/m55_prepare_odin_cache.py stock "$FUS_OUTPUT_ZIP" "$ODIN_DIR"
+          rm -f "$FUS_OUTPUT_ZIP"
+          df -h /
+
+      - name: Extract stock firmwares — original UN1CA M55 target extractor
+        shell: bash
+        timeout-minutes: 70
+        run: |
+          set -euo pipefail
+          ./scripts/extract_fw.sh --ignore-source
+          test -f "$FW_DIR/SM-M556B_INS/.extracted"
+          df -h /
+
+      - name: Restore JDK 17 for UN1CA APK/JAR building
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Build ROM — original UN1CA make_rom.sh (target-files only)
+        shell: bash
+        timeout-minutes: 100
+        run: |
+          set -euo pipefail
+          ./scripts/make_rom.sh
+          echo "::warning::Target-files package has NOT been boot-tested. Do NOT flash it."
+
+      - name: Save original build log metadata, not a flashable ZIP
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: M55-original-UN1CA-build-logs-NOT-FLASHABLE
+          path: |
+            out/config.sh
+            out/*.log
+            out/target/m55xq/*.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Explain original UN1CA build provenance
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### Original UN1CA CI, adapted only for M55"
+            echo "- Original steps retained: shellcheck, target matrix, disk setup, dependencies, extract_fw.sh and make_rom.sh."
+            echo "- Pinned source SM-S901E/TUR/S901EXXSEGZH4 (One UI 8)."
+            echo "- Pinned target SM-M556B/INS/M556BXXS4BYH2 (One UI 7)."
+            echo "- CACHE is a local identifier only; no fake IMEI or serial is sent to Samsung."
+            echo "- Requires independently verified M55 SEC feature config and SHA256-matched patched kernel quartet."
+            echo "- The output is NOT marked bootable or flashable; AVB/VINTF/kernel ABI are not device-tested."
+          } >> "$GITHUB_STEP_SUMMARY"
