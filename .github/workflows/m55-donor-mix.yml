@@ -1,0 +1,148 @@
+name: M55 UN1CA 8 donor integration experiment
+
+on:
+  workflow_dispatch:
+    inputs:
+      stock_run_id:
+        description: "Verified stock M55 artifacts from this successful inspection run"
+        type: string
+        required: true
+        default: "40908265068"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: m55-donor-mix-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  donor-mix:
+    name: Download exact S22 One UI 8 donor and validate M55 dynamic partition mix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      FUS_MODEL: SM-S901E
+      FUS_REGION: TUR
+      FUS_PDA: S901EXXSEGZH4
+      FUS_OUTPUT_ZIP: ${{ github.workspace }}/out/SM-S901E-TUR-S901EXXSEGZH4.zip
+    steps:
+      - name: Free runner disk before downloading donor (~8+ GB)
+        shell: bash
+        run: |
+          set -euo pipefail
+          df -h /
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/powershell \
+            /usr/local/lib/android /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      - uses: actions/checkout@v4
+        with:
+          filter: blob:none
+          sparse-checkout: |
+            scripts/bifrost/BifrostFetch.kt
+            scripts/m55_extract_dynamic.py
+            scripts/m55_extract_donor.py
+            scripts/m55_mix_donor.py
+            scripts/m55_build_readiness.py
+            scripts/internal/gen_config_file.sh
+            target/m55xq/config.sh
+            platform/sm7450/config.sh
+
+      - name: Static validation before large download
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m py_compile scripts/m55_extract_dynamic.py scripts/m55_extract_donor.py \
+            scripts/m55_mix_donor.py scripts/m55_build_readiness.py
+          bash -n target/m55xq/config.sh platform/sm7450/config.sh
+          python3 scripts/m55_build_readiness.py . out/donor-mix
+          mkdir -p out
+
+      - name: Download M55 verified vendor/odm/vendor_dlkm from prior run
+        uses: actions/download-artifact@v4
+        with:
+          name: M55-OneUI7-BYH2-vendor-odm-vendor_dlkm-raw
+          run-id: ${{ inputs.stock_run_id }}
+          repository: ${{ github.repository }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: out/m55-stock
+
+      - name: Install Java 21 for original Bifrost client
+        uses: actions/setup-java@v4
+        with:
+          distribution: microsoft
+          java-version: '21'
+
+      - name: Prepare Bifrost SmartDownload for S22 exact build
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/zacharee/Bifrost.git bifrost-src
+          cp scripts/bifrost/BifrostFetch.kt bifrost-src/desktop/src/jvmMain/kotlin/BifrostFetch.kt
+          sed -i 's/mainClass = "MainKt"/mainClass = "BifrostFetchKt"/g' bifrost-src/desktop/build.gradle.kts
+          sed -i 's/^org.gradle.jvmargs=.*/org.gradle.jvmargs=-Xmx3g/' bifrost-src/gradle.properties
+          sed -i 's/^org.gradle.parallel=true/org.gradle.parallel=false/' bifrost-src/gradle.properties
+          chmod +x bifrost-src/gradlew
+
+      - name: Download and decrypt pinned S22 Android 16 firmware
+        working-directory: bifrost-src
+        timeout-minutes: 110
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./gradlew :desktop:run --no-daemon --console=plain
+          test -s "$FUS_OUTPUT_ZIP"
+          file "$FUS_OUTPUT_ZIP"
+          df -h /
+
+      - name: Install sparse-super streaming decoder
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/m55-python"
+          "$RUNNER_TEMP/m55-python/bin/python" -m pip install --disable-pip-version-check lz4
+
+      - name: Extract exact One UI 8 donor system/product/system_ext EROFS images
+        shell: bash
+        timeout-minutes: 35
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/m55-python/bin/python" scripts/m55_extract_donor.py \
+            "$FUS_OUTPUT_ZIP" "$RUNNER_TEMP/m55-s22-images" out/donor-mix
+          rm -f "$FUS_OUTPUT_ZIP"
+          df -h /
+
+      - name: Verify M55 super capacity and generate donor-mix recipe
+        shell: bash
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          python3 scripts/m55_mix_donor.py \
+            "$RUNNER_TEMP/m55-s22-images" out/m55-stock out/donor-mix out/donor-mix
+          cat out/donor-mix/DO_NOT_FLASH.txt
+          cat out/donor-mix/candidate_partition_manifest.json
+
+      - name: Upload donor-mix reports only, no unverified images
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: M55-OneUI8-S22-donor-mix-experiment-NOT-FLASHABLE
+          path: out/donor-mix/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Report known limitations
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "### M55 One UI 8 donor experiment"
+            echo "- Donor: SM-S901E / TUR / S901EXXSEGZH4 (exact build only)"
+            echo "- Target: SM-M556B / INS / M556BXXS4BYH2"
+            echo "- Verify donor EROFS and 13,627,293,696-byte M55 LP group limit"
+            echo "- Stage includes NO unverified vbmeta, modified boot images or automatic flash actions"
+            echo "- Passing metadata and geometry does not prove Samsung framework/HAL/VINTF compatibility"
+            echo "- Output is a manifest/recipe; NOT a bootable/flashable UN1CA ROM"
+          } >> "$GITHUB_STEP_SUMMARY"
