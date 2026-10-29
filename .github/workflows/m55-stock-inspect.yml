@@ -2,11 +2,6 @@ name: M55 One UI 7 stock image inspection
 
 on:
   workflow_dispatch:
-  push:
-    branches: [sixteen]
-    paths:
-      - .github/workflows/m55-stock-inspect.yml
-
 permissions:
   contents: read
 
