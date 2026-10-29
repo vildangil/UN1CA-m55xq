@@ -1,0 +1,49 @@
+name: M55 official Bifrost source probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [sixteen]
+    paths:
+      - .github/workflows/m55-bifrost-native.yml
+      - scripts/bifrost/BifrostProbe.kt
+
+permissions:
+  contents: read
+
+jobs:
+  native-probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          filter: blob:none
+          sparse-checkout: |
+            scripts/bifrost/BifrostProbe.kt
+
+      - name: Prepare Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: microsoft
+          java-version: '21'
+
+      - name: Prepare Bifrost source with headless entrypoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 https://github.com/zacharee/Bifrost.git bifrost-src
+          cd bifrost-src
+          mkdir -p desktop/src/jvmMain/kotlin
+          cp ../scripts/bifrost/BifrostProbe.kt desktop/src/jvmMain/kotlin/BifrostProbe.kt
+          sed -i 's/mainClass = "MainKt"/mainClass = "BifrostProbeKt"/g' desktop/build.gradle.kts
+          sed -i 's/^org.gradle.jvmargs=.*/org.gradle.jvmargs=-Xmx3g/' gradle.properties
+          sed -i 's/^org.gradle.parallel=true/org.gradle.parallel=false/' gradle.properties
+
+      - name: Probe M55 using Bifrost SmartDownload (metadata only)
+        working-directory: bifrost-src
+        timeout-minutes: 38
+        shell: bash
+        run: |
+          chmod +x gradlew
+          ./gradlew :desktop:run --no-daemon --console=plain
