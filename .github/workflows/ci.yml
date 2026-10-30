@@ -331,7 +331,7 @@ jobs:
           test -f "$FW_DIR/SM-M556B_INS/.extracted"
           df -h /
 
-      - name: Extract and verify device-specific M55 SEC configuration from REAL stock firmware
+      - name: Audit stock M55 SEC features and apply strict or UNFLASHABLE experimental policy
         shell: bash
         run: |
           set -euo pipefail
