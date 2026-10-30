@@ -34,6 +34,39 @@ BOOL_RE = re.compile(r"^(true|false)$", flags=re.I)
 INT_RE = re.compile(r"^-?[0-9]+$")
 NON_VALUES = {"", "null", "n/a", "undefined", "__M55_UNVERIFIED__"}
 
+# Only used in an explicitly selected *non-flashable* CI experiment.
+# These are inert compatibility placeholders, NOT statements about M55
+# hardware. They must be listed in the uploaded evidence manifest.
+EXPERIMENTAL_ENUM_DEFAULTS = {
+    "TARGET_LCD_CONFIG_HFR_DEFAULT_REFRESH_RATE": "60",
+    "TARGET_LCD_CONFIG_HFR_MODE": "0",
+    "TARGET_LCD_CONFIG_COLOR_WEAKNESS_SOLUTION": "0",
+    "TARGET_LCD_CONFIG_CONTROL_AUTO_BRIGHTNESS": "0",
+    "TARGET_RIL_SIM_CONFIG_MULTISIM_TRAYCOUNT": "1",
+}
+EXPERIMENTAL_NUMERIC_DEFAULTS = {
+    "TARGET_COMMON_CONFIG_MDNIE_MODE": "0",
+    "TARGET_WLAN_CONFIG_CONNECTION_PERSONALIZATION": "0",
+    "TARGET_WLAN_CONFIG_CPU_CSTATE_DISABLE_THRESHOLD": "0",
+    "TARGET_WLAN_CONFIG_DATA_ACTIVITY_AFFINITY_BOOSTER_THRESHOLD": "0",
+    "TARGET_WLAN_CONFIG_DYNAMIC_SWITCH": "0",
+    "TARGET_WLAN_CONFIG_L1SS_DISABLE_THRESHOLD": "0",
+}
+
+def experimental_placeholder(key: str) -> str:
+    """Syntactically typed, minimally enabled placeholder for a preview only."""
+    if key in EXPERIMENTAL_ENUM_DEFAULTS:
+        return EXPERIMENTAL_ENUM_DEFAULTS[key]
+    if key in EXPERIMENTAL_NUMERIC_DEFAULTS:
+        return EXPERIMENTAL_NUMERIC_DEFAULTS[key]
+    if "_SUPPORT_" in key:
+        return "false"
+    # Do not copy S22's policy filenames or fingerprint hardware identity.
+    if "_CONFIG_" in key:
+        return "none"
+    raise ValueError("No explicit experimental placeholder for " + key)
+
+
 
 def stock_property(path: Path) -> dict[str, str]:
     result = {}
@@ -193,14 +226,39 @@ def main():
     p.add_argument("repo_root", type=Path)
     p.add_argument("output_dir", type=Path)
     p.add_argument("--fail-on-missing", action="store_true")
+    p.add_argument("--experimental-preview", action="store_true",
+                   help="Permit typed, visibly unverified placeholders ONLY for unflashable target-files analysis")
     args = p.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
     found, report = parse_stock(args.stock_root, args.repo_root)
+    report["feature_policy"] = "experimental-preview" if args.experimental_preview else "strict"
+    report["original_missing_required"] = list(report["missing_required"])
+    report["experimental_placeholders"] = {}
+    if args.experimental_preview:
+        # Every unsupported flag is recorded, never disguised as stock evidence.
+        # Conflicts are NOT resolved using the S22 donor.
+        for key in report["missing_required"]:
+            guessed = experimental_placeholder(key)
+            found[key] = guessed
+            report["experimental_placeholders"][key] = {
+                "value": guessed,
+                "verified": False,
+                "reason": "No unambiguous M55 stock evidence; preview-only neutral default",
+            }
+        report["may_build_experimental_target_files"] = True
+        report["full_unica_build_unblocked"] = False
+        report["safe_to_flash"] = False
+        report["boot_tested"] = False
+    else:
+        report["may_build_experimental_target_files"] = False
     config_path = args.output_dir / "m55-derived-features.sh"
     lines = [
-        "# Verified Galaxy M55 M556BXXS4BYH2 SEC features only.",
-        "# Generated automatically; missing values must NOT be guessed.",
+        "# M55 features from M556BXXS4BYH2 stock; see m55-feature-evidence.json.",
+        "# EXPERIMENTAL preview values are marked UNVERIFIED in the JSON report.",
+        "# NOT VALIDATED FOR FLASHING; no automatic installation.",
     ]
+    if args.experimental_preview:
+        lines.append("M55_EXPERIMENTAL_FEATURES_ACTIVE=true")
     for key in sorted(found):
         lines.append(f"{key}={shlex.quote(found[key])}")
     config_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
@@ -212,8 +270,12 @@ def main():
         print("M55_FEATURE_UNVERIFIED", item, flush=True)
     for problem in report["xml_parse_errors"] + report["conflicts"]:
         print("M55_FEATURE_EVIDENCE_WARNING", problem, flush=True)
-    if args.fail_on_missing and not report["full_unica_build_unblocked"]:
-        sys.exit("M55_CONFIG_INCOMPLETE: See m55-feature-evidence.json; no S22 substitutions allowed")
+    if report["experimental_placeholders"]:
+        print("M55_EXPERIMENTAL_PREVIEW_ONLY_UNVERIFIED_SETTINGS",
+              len(report["experimental_placeholders"]), flush=True)
+        print("M55_DO_NOT_FLASH_EXPERIMENTAL_HARDWARE_FEATURES", flush=True)
+    if args.fail_on_missing and not report["full_unica_build_unblocked"] and not args.experimental_preview:
+        sys.exit("M55_CONFIG_INCOMPLETE: See m55-feature-evidence.json; select explicit experimental preview to study downstream build steps")
 
 
 if __name__ == "__main__":
