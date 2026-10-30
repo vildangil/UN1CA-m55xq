@@ -20,6 +20,14 @@ on:
         description: "Existing successful Samsung M55 stock image inspection run"
         required: true
         default: "40908265068"
+      feature_policy:
+        type: choice
+        description: "M55 SEC policy: strict stops on unknown features; experimental emits UNFLASHABLE target-files for analysis only"
+        required: true
+        default: experimental
+        options:
+          - experimental
+          - strict
       kernel_source:
         type: choice
         description: "boot chain for build: stock M55 + user's Custom Binary patch, or previously tested image quartet"
@@ -327,12 +335,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Default build is an analysis-only experiment: every unsupported
+          # feature remains explicitly UNVERIFIED in the evidence JSON.
+          policy="${{ inputs.feature_policy }}"
+          args=(--fail-on-missing)
+          if [[ "$policy" == "experimental" ]]; then
+            args+=(--experimental-preview)
+            echo "M55_EXPERIMENTAL_FEATURES_ACTIVE=1" >> "$GITHUB_ENV"
+            echo "::warning::EXPERIMENTAL: incomplete M55 SEC configuration. Outputs are non-flashable research artifacts."
+          elif [[ "$policy" != "strict" ]]; then
+            echo "::error::Unexpected M55 feature policy: $policy"
+            exit 1
+          fi
           python3 scripts/m55_derive_features.py \
             "$FW_DIR/SM-M556B_INS" . out/m55-stock-feature-evidence \
-            --fail-on-missing
+            "${args[@]}"
           test -s out/m55-stock-feature-evidence/m55-derived-features.sh
           echo "M55_DEVICE_CONFIG=$GITHUB_WORKSPACE/out/m55-stock-feature-evidence/m55-derived-features.sh" >> "$GITHUB_ENV"
-          echo "M55_STOCK_FEATURES_COMPLETE"
+          echo "M55_STOCK_FEATURES_EXTRACTED_POLICY=$policy"
 
       - name: Regenerate final original UN1CA config using verified M55 data
         shell: bash
@@ -462,6 +482,7 @@ jobs:
             echo "- stock_custom mode uses exact Samsung M55 stock boot/vendor_boot/dtbo with the owner's original SignerVer02 algorithm, and unchanged stock vendor_dlkm."
             echo "- owner_tested alternative validates the previously supplied custom kernel quartet by SHA-256."
             echo "- Device SEC values are derived from exact stock M55 floating_feature.xml and policy file evidence; no feature config secret."
-            echo "- Missing or conflicting M55 SEC fields fail closed and are published in the evidence artifact."
+            echo "- Unknown/conflicting M55 SEC fields are published in the evidence artifact; strict policy stops, experimental preview records neutral unverified placeholders."
+            echo "- Experimental mode only builds unflashable target-files; flashing or installing these is unsupported."
             echo "- The output is NOT marked bootable or flashable; AVB/VINTF/kernel ABI are not device-tested."
           } >> "$GITHUB_STEP_SUMMARY"
