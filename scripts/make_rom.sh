@@ -100,6 +100,18 @@ PRINT_USAGE()
 
 PREPARE_SCRIPT "$@"
 
+# The explicit experimental SEC-feature fallback is allowed only for
+# non-installable target-files analysis. It must never produce a ROM ZIP,
+# and the log must preserve that the configuration is unverified.
+if [[ "${TARGET_CODENAME:-}" == "m55xq" ]] && \
+        [[ "${M55_EXPERIMENTAL_FEATURES_ACTIVE:-0}" == "1" ]]; then
+    if $BUILD_FLASHABLE_ZIP; then
+        LOGE "Cannot build a flashable M55 ROM with unverified experimental SEC features"
+        exit 1
+    fi
+    LOGW "M55 EXPERIMENTAL PREVIEW ONLY: device SEC flags are unverified; target-files MUST NOT be flashed"
+fi
+
 # Fail closed if a user runs the real M55 build with the temporary
 # dependencies-only feature bootstrap. The original UN1CA build must see
 # fully validated target options derived from stock, not guesses.
