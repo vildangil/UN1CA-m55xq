@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Offline M55 stock SEC auto-detection and bootstrap regression fixtures."""
 from pathlib import Path
+import json
+import subprocess
 import sys
 import tempfile
 
@@ -56,6 +58,32 @@ with tempfile.TemporaryDirectory(prefix="m55-sec-features-") as t:
     assert report["missing_required"] == ["TARGET_COMMON_CONFIG_MDNIE_MODE"]
     assert not report["full_unica_build_unblocked"]
     assert report["verified_values"]["TARGET_AUDIO_SUPPORT_DUAL_SPEAKER"]["method"] == "exact_xml_tag"
+
+    # Strict mode correctly refuses to proceed with missing SEC settings.
+    extractor = Path(__file__).resolve().parents[1] / "m55_derive_features.py"
+    strict = subprocess.run([sys.executable, str(extractor), str(fw),
+        str(repo), str(Path(t)/"strict"), "--fail-on-missing"],
+        capture_output=True, text=True)
+    assert strict.returncode != 0
+    strict_report = json.loads((Path(t)/"strict/m55-feature-evidence.json").read_text())
+    assert not strict_report["full_unica_build_unblocked"]
+
+    # Experimental mode must NOT erase missing evidence: it writes a separate
+    # placeholder provenance list while reporting safe_to_flash=False.
+    experimental = subprocess.run([sys.executable, str(extractor), str(fw),
+        str(repo), str(Path(t)/"experimental"),
+        "--fail-on-missing", "--experimental-preview"],
+        capture_output=True, text=True)
+    assert experimental.returncode == 0, experimental.stderr
+    exp_report = json.loads((Path(t)/"experimental/m55-feature-evidence.json").read_text())
+    assert not exp_report["safe_to_flash"]
+    assert not exp_report["full_unica_build_unblocked"]
+    assert exp_report["may_build_experimental_target_files"]
+    assert "TARGET_COMMON_CONFIG_MDNIE_MODE" in exp_report["original_missing_required"]
+    assert exp_report["experimental_placeholders"]["TARGET_COMMON_CONFIG_MDNIE_MODE"]["value"] == "0"
+    exp_config = (Path(t)/"experimental/m55-derived-features.sh").read_text()
+    assert "M55_EXPERIMENTAL_FEATURES_ACTIVE=true" in exp_config
+    assert "TARGET_COMMON_CONFIG_MDNIE_MODE=0" in exp_config
 
     (fw / "product/etc/floating_feature.xml").write_text(
         "<SecFloatingFeature>"
